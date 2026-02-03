@@ -35,7 +35,11 @@ const navItems = [
   { label: "Report Builder", href: "/report-builder", icon: FileBarChart },
   { label: "Presets", href: "/presets", icon: BookMarked },
   { label: "Scheduled Reports", href: "/scheduled", icon: Calendar },
-  { label: "Admin", href: "/admin", icon: Shield },
+  { label: "Admin", href: "/admin", icon: Shield, children: [
+    { label: "Users", href: "/admin/users" },
+    { label: "Audit Log", href: "/admin/audit-log" },
+    { label: "Settings", href: "/admin/settings" },
+  ] },
 ];
 
 interface AppLayoutProps {
@@ -75,7 +79,7 @@ export function AppLayout({ children, pageTitle }: AppLayoutProps) {
         <SidebarContent className="p-2">
           <SidebarMenu>
             {navItems.map((item) => {
-              const isActive = pathname === item.href;
+              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
               return (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={isActive}>
