@@ -25,56 +25,32 @@ export async function getSalesforceAccessToken(): Promise<{ token: string; insta
 
   const clientId = process.env.SF_CLIENT_ID || process.env.SALESFORCE_CONSUMER_KEY;
   const clientSecret = process.env.SF_CLIENT_SECRET || process.env.SALESFORCE_CONSUMER_SECRET;
-  const username = process.env.SALESFORCE_USERNAME;
-  const password = process.env.SALESFORCE_PASSWORD;
-  const securityToken = process.env.SALESFORCE_SECURITY_TOKEN || '';
   const instanceUrl = process.env.SALESFORCE_INSTANCE_URL || 'https://sherminmax.my.salesforce.com';
 
   if (!clientId || !clientSecret) {
     throw new Error('Missing Salesforce credentials: SF_CLIENT_ID and SF_CLIENT_SECRET are required');
   }
 
-  // Use login.salesforce.com for username-password OAuth flow
-  // The My Domain URL is used later for API calls after authentication
-  const tokenUrl = 'https://login.salesforce.com/services/oauth2/token';
+  // Client Credentials Flow uses the My Domain URL for token requests
+  const tokenUrl = `${instanceUrl}/services/oauth2/token`;
 
   try {
-    let response: Response;
+    console.log('Using Client Credentials OAuth flow');
+    console.log('Token URL:', tokenUrl);
 
-    // Check if we have username/password credentials for password grant flow
-    if (username && password) {
-      console.log('Using username-password OAuth flow');
-
-      // Password grant flow - append security token to password
-      response = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          grant_type: 'password',
-          client_id: clientId,
-          client_secret: clientSecret,
-          username: username,
-          password: password + securityToken,
-        }),
-      });
-    } else {
-      console.log('Using client credentials OAuth flow');
-
-      // Client credentials flow (requires special Salesforce setup)
-      response = await fetch(tokenUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          grant_type: 'client_credentials',
-          client_id: clientId,
-          client_secret: clientSecret,
-        }),
-      });
-    }
+    // Client Credentials Flow - simplest server-to-server auth
+    // The "Run As" user is configured in Salesforce Connected App settings
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
