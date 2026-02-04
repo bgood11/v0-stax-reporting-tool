@@ -246,6 +246,7 @@ export async function executeSOQL(query: string): Promise<any[]> {
  */
 export async function fetchAllApplicationDecisions(): Promise<any[]> {
   // SOQL query with VERIFIED field names from Salesforce describe API
+  // Note: Keeping query simple to avoid deep relationship traversal issues
   const soqlQuery = `
     SELECT
       Id,
@@ -287,19 +288,11 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
       Application__c,
       Application__r.Name,
       Application__r.Application_Number__c,
-
-      /* Fields from Application__r */
       Application__r.APR__c,
       Application__r.Terms_Month__c,
       Application__r.Deferral_Period__c,
       Application__r.Goods_Description__c,
-      Application__r.Deposit_Amount__c,
-
-      /* BDM/Opportunity info via Application */
-      Application__r.Opportunity__c,
-      Application__r.Opportunity__r.Name,
-      Application__r.Opportunity__r.Account.Name,
-      Application__r.Opportunity__r.Account.Parent.Name
+      Application__r.Deposit_Amount__c
 
     FROM Application_Decision__c
     WHERE Active__c = true
