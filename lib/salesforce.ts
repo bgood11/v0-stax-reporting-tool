@@ -34,9 +34,9 @@ export async function getSalesforceAccessToken(): Promise<{ token: string; insta
     throw new Error('Missing Salesforce credentials: SF_CLIENT_ID and SF_CLIENT_SECRET are required');
   }
 
-  // Try My Domain URL first, then fall back to login.salesforce.com
-  // Some orgs require using the My Domain URL for OAuth
-  const tokenUrl = `${instanceUrl}/services/oauth2/token`;
+  // Use login.salesforce.com for username-password OAuth flow
+  // The My Domain URL is used later for API calls after authentication
+  const tokenUrl = 'https://login.salesforce.com/services/oauth2/token';
 
   try {
     let response: Response;
