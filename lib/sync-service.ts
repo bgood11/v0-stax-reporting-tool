@@ -1,11 +1,17 @@
 // Sync service for pulling Salesforce data
 import db from './db';
-import { fetchReportData, transformRecord } from './salesforce';
+import {
+  fetchReportData,
+  transformRecord,
+  fetchAllApplicationDecisions,
+  transformSOQLRecord
+} from './salesforce';
 
 interface SyncResult {
   success: boolean;
   recordCount?: number;
   error?: string;
+  method?: 'soql' | 'report';
 }
 
 interface SyncLog {
@@ -108,6 +114,7 @@ export function setSyncedData(data: any[]): void {
 }
 
 // Modified sync that uses module-level storage
+// NOW USES SOQL QUERIES (no 2,000 row limit!)
 export async function syncDataToMemory(): Promise<SyncResult> {
   const startTime = new Date().toISOString();
   const syncLogEntry: SyncLog = {
@@ -121,27 +128,57 @@ export async function syncDataToMemory(): Promise<SyncResult> {
   syncLogs.push(syncLogEntry);
 
   try {
-    console.log('Starting Salesforce data sync...');
+    console.log('Starting Salesforce data sync via SOQL...');
 
-    // Fetch data from Salesforce
-    const rawData = await fetchReportData();
-    console.log(`Fetched ${rawData.length} records from Salesforce`);
+    // Try SOQL first (no row limit), fall back to Reports API if SOQL fails
+    let rawData: any[];
+    let method: 'soql' | 'report' = 'soql';
 
-    // Transform records
-    const records = rawData.map(transformRecord);
-    console.log(`Transformed ${records.length} records`);
+    try {
+      rawData = await fetchAllApplicationDecisions();
+      console.log(`Fetched ${rawData.length} records from Salesforce via SOQL`);
 
-    // Store in module-level variable
-    syncedApplicationDecisions = records;
+      // Transform SOQL records (different structure from Reports API)
+      const records = rawData.map(transformSOQLRecord);
+      console.log(`Transformed ${records.length} records`);
 
-    // Update sync log
-    syncLogEntry.completed_at = new Date().toISOString();
-    syncLogEntry.status = 'success';
-    syncLogEntry.records_synced = records.length;
+      // Store in module-level variable
+      syncedApplicationDecisions = records;
 
-    console.log(`Sync completed successfully: ${records.length} records`);
+      // Update sync log
+      syncLogEntry.completed_at = new Date().toISOString();
+      syncLogEntry.status = 'success';
+      syncLogEntry.records_synced = records.length;
 
-    return { success: true, recordCount: records.length };
+      console.log(`SOQL sync completed successfully: ${records.length} records`);
+
+      return { success: true, recordCount: records.length, method: 'soql' };
+
+    } catch (soqlError: any) {
+      console.error('SOQL fetch failed, falling back to Reports API:', soqlError.message);
+      method = 'report';
+
+      // Fall back to Reports API (limited to 2,000 rows)
+      rawData = await fetchReportData();
+      console.log(`Fetched ${rawData.length} records from Salesforce via Reports API (limited to 2,000)`);
+
+      // Transform records (Reports API format)
+      const records = rawData.map(transformRecord);
+      console.log(`Transformed ${records.length} records`);
+
+      // Store in module-level variable
+      syncedApplicationDecisions = records;
+
+      // Update sync log with warning about fallback
+      syncLogEntry.completed_at = new Date().toISOString();
+      syncLogEntry.status = 'success';
+      syncLogEntry.records_synced = records.length;
+      syncLogEntry.error_message = `SOQL failed (${soqlError.message}), used Reports API fallback - limited to 2,000 rows`;
+
+      console.log(`Reports API sync completed: ${records.length} records (fallback mode)`);
+
+      return { success: true, recordCount: records.length, method: 'report' };
+    }
 
   } catch (error: any) {
     console.error('Sync failed:', error.message);

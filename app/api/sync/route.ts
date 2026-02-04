@@ -47,10 +47,15 @@ export async function POST(request: NextRequest) {
     const result = await syncDataToMemory();
 
     if (result.success) {
+      const methodInfo = result.method === 'soql'
+        ? '(via SOQL - full dataset)'
+        : '(via Reports API - limited to 2,000 rows)';
+
       return NextResponse.json({
         success: true,
-        message: `Successfully synced ${result.recordCount} records from Salesforce`,
+        message: `Successfully synced ${result.recordCount} records from Salesforce ${methodInfo}`,
         recordCount: result.recordCount,
+        method: result.method || 'unknown',
       });
     } else {
       return NextResponse.json({

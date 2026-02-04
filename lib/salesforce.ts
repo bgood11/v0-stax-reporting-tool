@@ -147,7 +147,7 @@ export function parseDate(dateStr: string | null): string | null {
 
 export function transformRecord(raw: any): any {
   const record = {
-    id: raw['Application Decision Name'] || raw['AD_Name__c'] || raw['Id'],
+    id: raw['Application Decision Name'] || raw['AD_Name__c'] || raw['Name'] || raw['Id'],
     ap_number: raw['Application Number'] || raw['AP_Number__c'],
     lender_name: raw['Lender Name'] || raw['Lender__c'],
     bdm_name: raw['BDM Name'] || raw['BDM__c'],
@@ -156,7 +156,7 @@ export function transformRecord(raw: any): any {
     parent_company: raw['Parent Company: Company Name'] || raw['Parent_Company__c'],
     retailer_name: raw['Retailer Name'] || raw['Retailer__c'],
     created_date: parseDate(raw['Created Date'] || raw['CreatedDate']),
-    approved_date: parseDate(raw['Approved Date'] || raw['Approved_Date__c']),
+    approved_date: parseDate(raw['Approved Date'] || raw['Approved_Date__c'] || raw['Accepted_Date__c']),
     referred_date: parseDate(raw['Referred Date'] || raw['Referred_Date__c']),
     rejected_date: parseDate(raw['Rejected Date'] || raw['Rejected_Date__c']),
     contract_signed_date: parseDate(raw['Contract Signed Date'] || raw['Contract_Signed_Date__c']),
@@ -166,9 +166,9 @@ export function transformRecord(raw: any): any {
     purchase_amount: parseFloat(raw['Purchase Amount'] || raw['Purchase_Amount__c'] || '0'),
     deposit_amount: parseFloat(raw['Deposit Amount'] || raw['Deposit_Amount__c'] || '0'),
     loan_amount: parseFloat(raw['Loan Amount'] || raw['Loan_Amount__c'] || '0'),
-    commission_amount: parseFloat(raw['Shermin Commission Amount'] || raw['Commission__c'] || '0'),
+    commission_amount: parseFloat(raw['Shermin Commission Amount'] || raw['Commission__c'] || raw['Shermin_Commission__c'] || '0'),
     goods_description: raw['Goods Description'] || raw['Goods_Description__c'],
-    terms_month: parseInt(raw['Terms Month'] || raw['Terms__c'] || '0'),
+    terms_month: parseInt(raw['Terms Month'] || raw['Terms__c'] || raw['Term_Months__c'] || '0'),
     apr: parseFloat(raw['APR'] || raw['APR__c'] || '0'),
     finance_product: raw['Finance Product'] || raw['Finance_Product__c'],
     deferral_period: parseInt(raw['Deferral Period'] || raw['Deferral_Period__c'] || '0'),
@@ -177,4 +177,212 @@ export function transformRecord(raw: any): any {
 
   record.derived_status = deriveStatus(record);
   return record;
+}
+
+// ===========================================================================
+// SOQL-BASED DATA FETCHING (No 2,000 row limit - uses pagination)
+// ===========================================================================
+
+interface SOQLQueryResponse {
+  done: boolean;
+  nextRecordsUrl?: string;
+  totalSize: number;
+  records: any[];
+}
+
+/**
+ * Execute a SOQL query with automatic pagination
+ * Handles Salesforce's query limits by following nextRecordsUrl
+ */
+export async function executeSOQL(query: string): Promise<any[]> {
+  const { token, instanceUrl } = await getSalesforceAccessToken();
+
+  const allRecords: any[] = [];
+  let url = `${instanceUrl}/services/data/v59.0/query?q=${encodeURIComponent(query)}`;
+  let batchCount = 0;
+
+  while (url) {
+    batchCount++;
+    console.log(`Fetching SOQL batch ${batchCount}...`);
+
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`SOQL query failed: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json() as SOQLQueryResponse;
+    allRecords.push(...data.records);
+
+    console.log(`Batch ${batchCount}: Got ${data.records.length} records (Total: ${allRecords.length}/${data.totalSize})`);
+
+    // Continue if there are more records
+    if (data.done) {
+      url = '';
+    } else if (data.nextRecordsUrl) {
+      url = `${instanceUrl}${data.nextRecordsUrl}`;
+    } else {
+      url = '';
+    }
+  }
+
+  console.log(`SOQL query complete: ${allRecords.length} total records`);
+  return allRecords;
+}
+
+/**
+ * Fetch all Application Decision records using SOQL
+ * This bypasses the 2,000 row Reports API limit
+ *
+ * Based on the data model from 03-SALESFORCE-QUERIES.md:
+ * - Primary object: Application_Decision__c
+ * - Related objects: Lender (Account), Application__c, Opportunity, Retailer Account
+ */
+export async function fetchAllApplicationDecisions(): Promise<any[]> {
+  // SOQL query based on the field mappings from documentation
+  // Note: Field names may need adjustment based on actual Salesforce schema
+  const soqlQuery = `
+    SELECT
+      Id,
+      Name,
+      CreatedDate,
+      Active__c,
+
+      /* Lender info */
+      Lender__c,
+      Lender__r.Name,
+
+      /* Waterfall position */
+      Priority__c,
+      Prime_Sub_Prime__c,
+
+      /* Status dates - from 02-DATA-MODEL.md */
+      Accepted_Date__c,
+      Referred_Date__c,
+      Declined_Date__c,
+      Contract_Signed_Date__c,
+      Live_Date__c,
+      Cancelled_Date__c,
+      Expired_Date__c,
+
+      /* Financial values */
+      Loan_Amount__c,
+      Purchase_Amount__c,
+      Deposit_Amount__c,
+      Shermin_Commission__c,
+
+      /* Product details */
+      APR__c,
+      Term_Months__c,
+      Finance_Product__c,
+      Deferral_Period__c,
+      Goods_Description__c,
+
+      /* Related Application info */
+      Application__c,
+      Application__r.Name,
+
+      /* Related Opportunity and Retailer */
+      Application__r.Opportunity__c,
+      Application__r.Opportunity__r.Name,
+      Application__r.Opportunity__r.Account.Name,
+      Application__r.Opportunity__r.Account.Parent.Name,
+
+      /* BDM info - typically on Opportunity or Account */
+      Application__r.Opportunity__r.BDM__c,
+      Application__r.Opportunity__r.BDM__r.Name
+
+    FROM Application_Decision__c
+    WHERE Active__c = true
+    ORDER BY CreatedDate DESC
+  `;
+
+  try {
+    console.log('Fetching Application Decisions via SOQL...');
+    const records = await executeSOQL(soqlQuery);
+    return records;
+  } catch (error: any) {
+    console.error('SOQL fetch failed:', error.message);
+
+    // If the query fails (likely due to field name issues), try a simpler query first
+    // to at least get basic data and log what fields are available
+    if (error.message.includes('No such column') || error.message.includes('Invalid field')) {
+      console.log('Field name error - attempting to discover correct field names...');
+      throw new Error(`SOQL field error: ${error.message}. Please run /api/salesforce/describe to get correct field names.`);
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * Transform SOQL record (flattened from nested structure) to our internal format
+ */
+export function transformSOQLRecord(raw: any): any {
+  // Handle nested relationship fields from SOQL
+  const lenderName = raw.Lender__r?.Name || raw.Lender__c || '';
+  const appNumber = raw.Application__r?.Name || raw.Application__c || '';
+  const retailerName = raw.Application__r?.Opportunity__r?.Account?.Name || '';
+  const parentCompany = raw.Application__r?.Opportunity__r?.Account?.Parent?.Name || '';
+  const bdmName = raw.Application__r?.Opportunity__r?.BDM__r?.Name ||
+                  raw.Application__r?.Opportunity__r?.BDM__c || '';
+
+  const record = {
+    id: raw.Name || raw.Id,
+    ap_number: appNumber,
+    lender_name: lenderName,
+    bdm_name: bdmName,
+    prime_subprime: raw.Prime_Sub_Prime__c || raw.Prime_SubPrime__c || '',
+    priority: parseInt(raw.Priority__c || '0') || 0,
+    parent_company: parentCompany,
+    retailer_name: retailerName,
+    created_date: formatSalesforceDate(raw.CreatedDate),
+    approved_date: formatSalesforceDate(raw.Accepted_Date__c),
+    referred_date: formatSalesforceDate(raw.Referred_Date__c),
+    rejected_date: formatSalesforceDate(raw.Declined_Date__c || raw.Rejected_Date__c),
+    contract_signed_date: formatSalesforceDate(raw.Contract_Signed_Date__c),
+    live_date: formatSalesforceDate(raw.Live_Date__c),
+    cancelled_date: formatSalesforceDate(raw.Cancelled_Date__c),
+    expired_date: formatSalesforceDate(raw.Expired_Date__c),
+    purchase_amount: parseFloat(raw.Purchase_Amount__c || '0') || 0,
+    deposit_amount: parseFloat(raw.Deposit_Amount__c || '0') || 0,
+    loan_amount: parseFloat(raw.Loan_Amount__c || '0') || 0,
+    commission_amount: parseFloat(raw.Shermin_Commission__c || raw.Commission__c || '0') || 0,
+    goods_description: raw.Goods_Description__c || '',
+    terms_month: parseInt(raw.Term_Months__c || raw.Terms__c || '0') || 0,
+    apr: parseFloat(raw.APR__c || '0') || 0,
+    finance_product: raw.Finance_Product__c || '',
+    deferral_period: parseInt(raw.Deferral_Period__c || '0') || 0,
+    derived_status: ''
+  };
+
+  record.derived_status = deriveStatus(record);
+  return record;
+}
+
+/**
+ * Format Salesforce datetime to YYYY-MM-DD
+ */
+function formatSalesforceDate(dateStr: string | null | undefined): string | null {
+  if (!dateStr) return null;
+
+  // Salesforce returns ISO format: 2024-01-15T00:00:00.000+0000
+  // Extract just the date part
+  if (dateStr.includes('T')) {
+    return dateStr.split('T')[0];
+  }
+
+  // Handle DD/MM/YYYY format (from reports)
+  const parts = dateStr.split('/');
+  if (parts.length === 3) {
+    return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+  }
+
+  return dateStr;
 }
