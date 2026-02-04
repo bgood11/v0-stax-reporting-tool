@@ -245,8 +245,7 @@ export async function executeSOQL(query: string): Promise<any[]> {
  * - Related objects: Lender (Account), Application__c, Opportunity, Retailer Account
  */
 export async function fetchAllApplicationDecisions(): Promise<any[]> {
-  // SOQL query based on the field mappings from documentation
-  // Note: Field names may need adjustment based on actual Salesforce schema
+  // SOQL query with VERIFIED field names from Salesforce describe API
   const soqlQuery = `
     SELECT
       Id,
@@ -254,49 +253,53 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
       CreatedDate,
       Active__c,
 
-      /* Lender info */
+      /* Lender info - direct on AD */
       Lender__c,
       Lender__r.Name,
+      Lender_Name__c,
+
+      /* Retailer info - direct on AD */
+      Retailer__c,
+      Retailer__r.Name,
+      Retailer__r.Parent.Name,
 
       /* Waterfall position */
       Priority__c,
       Prime_Sub_Prime__c,
 
-      /* Status dates - from 02-DATA-MODEL.md */
+      /* Status dates - VERIFIED field names */
       Accepted_Date__c,
       Referred_Date__c,
-      Declined_Date__c,
+      Approved_Declined_Date__c,
       Contract_Signed_Date__c,
-      Live_Date__c,
+      Paid_Out_Date__c,
       Cancelled_Date__c,
-      Expired_Date__c,
+      Expired_On__c,
 
-      /* Financial values */
+      /* Financial values on AD */
       Loan_Amount__c,
       Purchase_Amount__c,
-      Deposit_Amount__c,
-      Shermin_Commission__c,
 
-      /* Product details */
-      APR__c,
-      Term_Months__c,
-      Finance_Product__c,
-      Deferral_Period__c,
-      Goods_Description__c,
+      /* Product info on AD */
+      Product_Name__c,
 
       /* Related Application info */
       Application__c,
       Application__r.Name,
+      Application__r.Application_Number__c,
 
-      /* Related Opportunity and Retailer */
+      /* Fields from Application__r */
+      Application__r.APR__c,
+      Application__r.Terms_Month__c,
+      Application__r.Deferral_Period__c,
+      Application__r.Goods_Description__c,
+      Application__r.Deposit_Amount__c,
+
+      /* BDM/Opportunity info via Application */
       Application__r.Opportunity__c,
       Application__r.Opportunity__r.Name,
       Application__r.Opportunity__r.Account.Name,
-      Application__r.Opportunity__r.Account.Parent.Name,
-
-      /* BDM info - typically on Opportunity or Account */
-      Application__r.Opportunity__r.BDM__c,
-      Application__r.Opportunity__r.BDM__r.Name
+      Application__r.Opportunity__r.Account.Parent.Name
 
     FROM Application_Decision__c
     WHERE Active__c = true
@@ -325,40 +328,53 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
  * Transform SOQL record (flattened from nested structure) to our internal format
  */
 export function transformSOQLRecord(raw: any): any {
-  // Handle nested relationship fields from SOQL
-  const lenderName = raw.Lender__r?.Name || raw.Lender__c || '';
-  const appNumber = raw.Application__r?.Name || raw.Application__c || '';
-  const retailerName = raw.Application__r?.Opportunity__r?.Account?.Name || '';
-  const parentCompany = raw.Application__r?.Opportunity__r?.Account?.Parent?.Name || '';
-  const bdmName = raw.Application__r?.Opportunity__r?.BDM__r?.Name ||
-                  raw.Application__r?.Opportunity__r?.BDM__c || '';
+  // Handle nested relationship fields from SOQL - VERIFIED field paths
+  // Lender: direct on AD
+  const lenderName = raw.Lender__r?.Name || raw.Lender_Name__c || raw.Lender__c || '';
+
+  // Retailer: direct on AD via Retailer__r
+  const retailerName = raw.Retailer__r?.Name || '';
+  const parentCompany = raw.Retailer__r?.Parent?.Name || '';
+
+  // Application Number: from Application__r
+  const appNumber = raw.Application__r?.Application_Number__c || raw.Application__r?.Name || '';
+
+  // BDM: Not directly available, would need separate query or formula field
+  const bdmName = '';
+
+  // Fields from Application__r
+  const apr = raw.Application__r?.APR__c || 0;
+  const termsMonth = raw.Application__r?.Terms_Month__c || 0;
+  const deferralPeriod = raw.Application__r?.Deferral_Period__c || 0;
+  const goodsDescription = raw.Application__r?.Goods_Description__c || '';
+  const depositAmount = raw.Application__r?.Deposit_Amount__c || 0;
 
   const record = {
     id: raw.Name || raw.Id,
     ap_number: appNumber,
     lender_name: lenderName,
     bdm_name: bdmName,
-    prime_subprime: raw.Prime_Sub_Prime__c || raw.Prime_SubPrime__c || '',
+    prime_subprime: raw.Prime_Sub_Prime__c || '',
     priority: parseInt(raw.Priority__c || '0') || 0,
     parent_company: parentCompany,
     retailer_name: retailerName,
     created_date: formatSalesforceDate(raw.CreatedDate),
     approved_date: formatSalesforceDate(raw.Accepted_Date__c),
     referred_date: formatSalesforceDate(raw.Referred_Date__c),
-    rejected_date: formatSalesforceDate(raw.Declined_Date__c || raw.Rejected_Date__c),
+    rejected_date: formatSalesforceDate(raw.Approved_Declined_Date__c),
     contract_signed_date: formatSalesforceDate(raw.Contract_Signed_Date__c),
-    live_date: formatSalesforceDate(raw.Live_Date__c),
+    live_date: formatSalesforceDate(raw.Paid_Out_Date__c),
     cancelled_date: formatSalesforceDate(raw.Cancelled_Date__c),
-    expired_date: formatSalesforceDate(raw.Expired_Date__c),
+    expired_date: formatSalesforceDate(raw.Expired_On__c),
     purchase_amount: parseFloat(raw.Purchase_Amount__c || '0') || 0,
-    deposit_amount: parseFloat(raw.Deposit_Amount__c || '0') || 0,
+    deposit_amount: parseFloat(depositAmount || '0') || 0,
     loan_amount: parseFloat(raw.Loan_Amount__c || '0') || 0,
-    commission_amount: parseFloat(raw.Shermin_Commission__c || raw.Commission__c || '0') || 0,
-    goods_description: raw.Goods_Description__c || '',
-    terms_month: parseInt(raw.Term_Months__c || raw.Terms__c || '0') || 0,
-    apr: parseFloat(raw.APR__c || '0') || 0,
-    finance_product: raw.Finance_Product__c || '',
-    deferral_period: parseInt(raw.Deferral_Period__c || '0') || 0,
+    commission_amount: 0, // Commission field not found - may need separate query
+    goods_description: goodsDescription,
+    terms_month: parseInt(termsMonth || '0') || 0,
+    apr: parseFloat(apr || '0') || 0,
+    finance_product: raw.Product_Name__c || '',
+    deferral_period: parseInt(deferralPeriod || '0') || 0,
     derived_status: ''
   };
 
