@@ -10,15 +10,40 @@ export default function LoginPage() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  const [error, setError] = useState("");
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
 
     setIsLoading(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsLoading(false);
-    setIsSubmitted(true);
+    setError("");
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.toLowerCase().trim() }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // In demo mode, redirect directly to the magic link if provided
+        if (data.magicLink) {
+          window.location.href = data.magicLink;
+        } else {
+          setIsSubmitted(true);
+        }
+      } else {
+        setError(data.error || 'Login failed. Please check your email address.');
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('An error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -51,6 +76,10 @@ export default function LoginPage() {
                     required
                   />
                 </div>
+
+                {error && (
+                  <p className="text-sm text-red-500 text-center">{error}</p>
+                )}
 
                 <button
                   type="submit"
