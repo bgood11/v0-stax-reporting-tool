@@ -201,5 +201,31 @@ export async function getSyncHistory(limit: number = 10) {
   return data || [];
 }
 
+/**
+ * Get synced application decisions data from Supabase
+ * Used for status checks and data samples
+ */
+export async function getSyncedData(limit?: number) {
+  const supabase = createAdminClient();
+
+  let query = supabase
+    .from('application_decisions')
+    .select('*')
+    .order('submitted_date', { ascending: false });
+
+  if (limit) {
+    query = query.limit(limit);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Failed to get synced data:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
 // Export with the old name for backward compatibility with the cron job
 export { syncDataToSupabase as syncDataToMemory };

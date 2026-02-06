@@ -7,24 +7,26 @@ export async function GET(request: NextRequest) {
   const action = searchParams.get('action');
 
   if (action === 'status') {
+    const lastSync = await getLastSyncStatus();
     return NextResponse.json({
-      lastSync: getLastSyncStatus(),
-      recordCount: getSyncedData().length,
+      lastSync,
+      recordCount: lastSync?.records_synced || 0,
     });
   }
 
   if (action === 'history') {
+    const history = await getSyncHistory(10);
     return NextResponse.json({
-      history: getSyncHistory(10),
+      history,
     });
   }
 
   if (action === 'data') {
     // Return a sample of synced data for testing
-    const data = getSyncedData();
+    const data = await getSyncedData(10);
     return NextResponse.json({
       recordCount: data.length,
-      sample: data.slice(0, 10),
+      sample: data,
     });
   }
 
