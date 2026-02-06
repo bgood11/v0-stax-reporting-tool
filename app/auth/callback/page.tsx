@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export default function AuthCallbackPage() {
+function AuthCallbackContent() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const router = useRouter();
@@ -84,69 +84,77 @@ export default function AuthCallbackPage() {
   }, [router, supabase.auth, searchParams]);
 
   return (
+    <div className="w-full max-w-md rounded-2xl bg-card p-8 shadow-xl text-center">
+      {status === "loading" && (
+        <>
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <h2 className="text-xl font-semibold text-card-foreground">
+            Signing you in...
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Please wait while we verify your credentials
+          </p>
+        </>
+      )}
+
+      {status === "success" && (
+        <>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+            <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-card-foreground">
+            Authentication successful!
+          </h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Redirecting to dashboard...
+          </p>
+        </>
+      )}
+
+      {status === "error" && (
+        <>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+            <svg className="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-card-foreground">
+            Authentication failed
+          </h2>
+          <p className="mt-2 text-sm text-red-500">
+            {errorMessage || "Please try again"}
+          </p>
+          <button
+            onClick={() => router.push("/")}
+            className="mt-6 rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+          >
+            Back to Login
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function LoadingFallback() {
+  return (
+    <div className="w-full max-w-md rounded-2xl bg-card p-8 shadow-xl text-center">
+      <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      <h2 className="text-xl font-semibold text-card-foreground">
+        Loading...
+      </h2>
+    </div>
+  );
+}
+
+export default function AuthCallbackPage() {
+  return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md rounded-2xl bg-card p-8 shadow-xl text-center">
-        {status === "loading" && (
-          <>
-            <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-            <h2 className="text-xl font-semibold text-card-foreground">
-              Signing you in...
-            </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Please wait while we verify your credentials
-            </p>
-          </>
-        )}
-
-        {status === "success" && (
-          <>
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
-              <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-semibold text-card-foreground">
-              Authentication successful!
-            </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Redirecting to dashboard...
-            </p>
-          </>
-        )}
-
-        {status === "error" && (
-          <>
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
-              <svg className="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-semibold text-card-foreground">
-              Authentication failed
-            </h2>
-            <p className="mt-2 text-sm text-red-500">
-              {errorMessage || "Please try again"}
-            </p>
-
-            {/* Debug info - remove in production */}
-            {debugInfo.length > 0 && (
-              <div className="mt-4 text-left p-3 bg-gray-100 rounded text-xs text-gray-600 max-h-32 overflow-auto">
-                <p className="font-semibold mb-1">Debug log:</p>
-                {debugInfo.map((msg, i) => (
-                  <p key={i}>{msg}</p>
-                ))}
-              </div>
-            )}
-
-            <button
-              onClick={() => router.push("/")}
-              className="mt-6 rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
-            >
-              Back to Login
-            </button>
-          </>
-        )}
-      </div>
+      <Suspense fallback={<LoadingFallback />}>
+        <AuthCallbackContent />
+      </Suspense>
     </div>
   );
 }
