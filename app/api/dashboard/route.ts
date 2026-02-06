@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { getFilterOptions } from '@/lib/report-service';
+import { getDashboardStats } from '@/lib/report-service';
 
 export async function GET() {
   // Verify auth
@@ -12,12 +12,12 @@ export async function GET() {
   }
 
   try {
-    const options = await getFilterOptions();
-    return NextResponse.json(options);
+    const stats = await getDashboardStats();
+    return NextResponse.json(stats);
   } catch (error: any) {
-    console.error('Failed to get filter options:', error);
+    console.error('Failed to get dashboard stats:', error);
     return NextResponse.json(
-      { error: 'Failed to get filter options' },
+      { error: 'Failed to get dashboard stats' },
       { status: 500 }
     );
   }

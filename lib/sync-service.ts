@@ -1,5 +1,5 @@
-// Sync service for pulling Salesforce data
-import db from './db';
+// Sync service for pulling Salesforce data into Supabase
+import { createAdminClient } from './supabase/server';
 import {
   fetchReportData,
   transformRecord,
@@ -14,180 +14,192 @@ interface SyncResult {
   method?: 'soql' | 'report';
 }
 
-interface SyncLog {
-  id: number;
-  started_at: string;
-  completed_at: string | null;
-  status: string;
-  records_synced: number | null;
-  error_message: string | null;
-}
+/**
+ * Main sync function - pulls data from Salesforce and stores in Supabase
+ * Used by the cron job at 1am daily
+ *
+ * Strategy: DELETE all existing data then INSERT fresh data
+ * This ensures data stays in sync and removes stale records
+ */
+export async function syncDataToSupabase(): Promise<SyncResult> {
+  const supabase = createAdminClient();
 
-// In-memory sync log (since we're using in-memory db)
-const syncLogs: SyncLog[] = [];
+  // Create sync log entry
+  const { data: syncLog, error: logError } = await supabase
+    .from('sync_log')
+    .insert({
+      status: 'running',
+      records_synced: 0
+    })
+    .select()
+    .single();
 
-export async function syncData(): Promise<SyncResult> {
-  const startTime = new Date().toISOString();
-  const syncLogEntry: SyncLog = {
-    id: syncLogs.length + 1,
-    started_at: startTime,
-    completed_at: null,
-    status: 'in_progress',
-    records_synced: null,
-    error_message: null,
-  };
-  syncLogs.push(syncLogEntry);
-
-  try {
-    console.log('Starting Salesforce data sync...');
-
-    // Fetch data from Salesforce
-    const rawData = await fetchReportData();
-    console.log(`Fetched ${rawData.length} records from Salesforce`);
-
-    // Transform records
-    const records = rawData.map(transformRecord);
-    console.log(`Transformed ${records.length} records`);
-
-    // Store in the in-memory database
-    // For the demo, we'll update the db store directly
-    // In production, this would use better-sqlite3
-
-    // Clear existing data and insert new
-    const store = (db as any)._getStore?.() || getStoreFromDb();
-
-    if (store && store.application_decisions) {
-      // Clear existing
-      store.application_decisions.length = 0;
-
-      // Insert new records
-      for (const record of records) {
-        store.application_decisions.push(record);
-      }
-    }
-
-    // Update sync log
-    syncLogEntry.completed_at = new Date().toISOString();
-    syncLogEntry.status = 'success';
-    syncLogEntry.records_synced = records.length;
-
-    console.log(`Sync completed successfully: ${records.length} records`);
-
-    return { success: true, recordCount: records.length };
-
-  } catch (error: any) {
-    console.error('Sync failed:', error.message);
-
-    // Update sync log with error
-    syncLogEntry.completed_at = new Date().toISOString();
-    syncLogEntry.status = 'failed';
-    syncLogEntry.error_message = error.message;
-
-    return { success: false, error: error.message };
+  if (logError) {
+    console.error('Failed to create sync log:', logError);
+    // Continue anyway - sync is more important than logging
   }
-}
 
-export function getLastSyncStatus(): SyncLog | undefined {
-  return syncLogs[syncLogs.length - 1];
-}
-
-export function getSyncHistory(limit: number = 10): SyncLog[] {
-  return syncLogs.slice(-limit).reverse();
-}
-
-// Helper to access the in-memory store (since we can't import it directly)
-function getStoreFromDb(): any {
-  // The db module exports methods that access an internal store
-  // We need to add a way to access it for the sync service
-  return null;
-}
-
-// Alternative: Store synced data in a module-level variable
-let syncedApplicationDecisions: any[] = [];
-
-export function getSyncedData(): any[] {
-  return syncedApplicationDecisions;
-}
-
-export function setSyncedData(data: any[]): void {
-  syncedApplicationDecisions = data;
-}
-
-// Modified sync that uses module-level storage
-// NOW USES SOQL QUERIES (no 2,000 row limit!)
-export async function syncDataToMemory(): Promise<SyncResult> {
-  const startTime = new Date().toISOString();
-  const syncLogEntry: SyncLog = {
-    id: syncLogs.length + 1,
-    started_at: startTime,
-    completed_at: null,
-    status: 'in_progress',
-    records_synced: null,
-    error_message: null,
-  };
-  syncLogs.push(syncLogEntry);
+  const syncLogId = syncLog?.id;
 
   try {
-    console.log('Starting Salesforce data sync via SOQL...');
+    console.log('Starting Salesforce data sync to Supabase...');
 
     // Try SOQL first (no row limit), fall back to Reports API if SOQL fails
     let rawData: any[];
     let method: 'soql' | 'report' = 'soql';
+    let records: any[];
 
     try {
       rawData = await fetchAllApplicationDecisions();
       console.log(`Fetched ${rawData.length} records from Salesforce via SOQL`);
-
-      // Transform SOQL records (different structure from Reports API)
-      const records = rawData.map(transformSOQLRecord);
-      console.log(`Transformed ${records.length} records`);
-
-      // Store in module-level variable
-      syncedApplicationDecisions = records;
-
-      // Update sync log
-      syncLogEntry.completed_at = new Date().toISOString();
-      syncLogEntry.status = 'success';
-      syncLogEntry.records_synced = records.length;
-
-      console.log(`SOQL sync completed successfully: ${records.length} records`);
-
-      return { success: true, recordCount: records.length, method: 'soql' };
-
+      records = rawData.map(transformSOQLRecord);
     } catch (soqlError: any) {
       console.error('SOQL fetch failed, falling back to Reports API:', soqlError.message);
       method = 'report';
 
-      // Fall back to Reports API (limited to 2,000 rows)
       rawData = await fetchReportData();
       console.log(`Fetched ${rawData.length} records from Salesforce via Reports API (limited to 2,000)`);
-
-      // Transform records (Reports API format)
-      const records = rawData.map(transformRecord);
-      console.log(`Transformed ${records.length} records`);
-
-      // Store in module-level variable
-      syncedApplicationDecisions = records;
-
-      // Update sync log with warning about fallback
-      syncLogEntry.completed_at = new Date().toISOString();
-      syncLogEntry.status = 'success';
-      syncLogEntry.records_synced = records.length;
-      syncLogEntry.error_message = `SOQL failed (${soqlError.message}), used Reports API fallback - limited to 2,000 rows`;
-
-      console.log(`Reports API sync completed: ${records.length} records (fallback mode)`);
-
-      return { success: true, recordCount: records.length, method: 'report' };
+      records = rawData.map(transformRecord);
     }
+
+    console.log(`Transformed ${records.length} records`);
+
+    // Delete all existing application decisions (fresh sync)
+    console.log('Clearing existing data...');
+    const { error: deleteError } = await supabase
+      .from('application_decisions')
+      .delete()
+      .neq('id', ''); // Delete all rows
+
+    if (deleteError) {
+      throw new Error(`Failed to clear existing data: ${deleteError.message}`);
+    }
+
+    // Insert new records in batches (Supabase has limits on batch size)
+    const BATCH_SIZE = 500;
+    let insertedCount = 0;
+
+    for (let i = 0; i < records.length; i += BATCH_SIZE) {
+      const batch = records.slice(i, i + BATCH_SIZE);
+
+      // Map our record format to database schema
+      const dbRecords = batch.map(r => ({
+        id: r.id,
+        application_number: r.ap_number,
+        lender_name: r.lender_name,
+        status: r.derived_status,
+        submitted_date: r.created_date,
+        approved_date: r.approved_date,
+        declined_date: r.rejected_date,
+        contract_signed_date: r.contract_signed_date,
+        live_date: r.live_date,
+        cancelled_date: r.cancelled_date,
+        expired_date: r.expired_date,
+        referred_date: r.referred_date,
+        loan_amount: r.loan_amount || null,
+        deposit_amount: r.deposit_amount || null,
+        goods_amount: r.purchase_amount || null,
+        retailer_name: r.retailer_name,
+        parent_company: r.parent_company,
+        bdm_name: r.bdm_name,
+        finance_product: r.finance_product,
+        apr: r.apr || null,
+        term_months: r.terms_month || null,
+        deferral_months: r.deferral_period || null,
+        prime_subprime: r.prime_subprime,
+        priority: r.priority || null,
+        commission_amount: r.commission_amount || null,
+        synced_at: new Date().toISOString()
+      }));
+
+      const { error: insertError } = await supabase
+        .from('application_decisions')
+        .insert(dbRecords);
+
+      if (insertError) {
+        console.error(`Batch insert failed at ${i}:`, insertError);
+        throw new Error(`Failed to insert batch at ${i}: ${insertError.message}`);
+      }
+
+      insertedCount += batch.length;
+      console.log(`Inserted ${insertedCount}/${records.length} records`);
+    }
+
+    // Update sync log on success
+    if (syncLogId) {
+      await supabase
+        .from('sync_log')
+        .update({
+          completed_at: new Date().toISOString(),
+          status: 'success',
+          records_synced: insertedCount
+        })
+        .eq('id', syncLogId);
+    }
+
+    console.log(`Sync completed successfully: ${insertedCount} records (method: ${method})`);
+
+    return { success: true, recordCount: insertedCount, method };
 
   } catch (error: any) {
     console.error('Sync failed:', error.message);
 
     // Update sync log with error
-    syncLogEntry.completed_at = new Date().toISOString();
-    syncLogEntry.status = 'failed';
-    syncLogEntry.error_message = error.message;
+    if (syncLogId) {
+      await supabase
+        .from('sync_log')
+        .update({
+          completed_at: new Date().toISOString(),
+          status: 'error',
+          error_message: error.message
+        })
+        .eq('id', syncLogId);
+    }
 
     return { success: false, error: error.message };
   }
 }
+
+/**
+ * Get the last sync status from the database
+ */
+export async function getLastSyncStatus() {
+  const supabase = createAdminClient();
+
+  const { data, error } = await supabase
+    .from('sync_log')
+    .select('*')
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) {
+    console.error('Failed to get sync status:', error);
+    return null;
+  }
+
+  return data;
+}
+
+/**
+ * Get sync history
+ */
+export async function getSyncHistory(limit: number = 10) {
+  const supabase = createAdminClient();
+
+  const { data, error } = await supabase
+    .from('sync_log')
+    .select('*')
+    .order('started_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error('Failed to get sync history:', error);
+    return [];
+  }
+
+  return data || [];
+}
+
+// Export with the old name for backward compatibility with the cron job
+export { syncDataToSupabase as syncDataToMemory };

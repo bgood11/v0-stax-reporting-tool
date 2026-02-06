@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { getFilterOptions } from '@/lib/report-service';
+import { getReportPresets } from '@/lib/report-service';
 
 export async function GET() {
   // Verify auth
@@ -12,12 +12,12 @@ export async function GET() {
   }
 
   try {
-    const options = await getFilterOptions();
-    return NextResponse.json(options);
+    const presets = await getReportPresets(user.id);
+    return NextResponse.json({ presets });
   } catch (error: any) {
-    console.error('Failed to get filter options:', error);
+    console.error('Failed to get presets:', error);
     return NextResponse.json(
-      { error: 'Failed to get filter options' },
+      { error: 'Failed to get presets' },
       { status: 500 }
     );
   }

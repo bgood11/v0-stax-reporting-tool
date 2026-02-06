@@ -1,16 +1,25 @@
 "use client";
 
-import React from "react"
-
+import React, { useEffect } from "react"
 import { useState } from "react";
-import { Mail, CheckCircle } from "lucide-react";
+import { Mail, CheckCircle, AlertCircle } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-
   const [error, setError] = useState("");
+
+  const supabase = createClient();
+
+  // Check for auth errors in URL (from callback)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('error') === 'auth_callback_error') {
+      setError('Authentication failed. Please try again.');
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,24 +28,21 @@ export default function LoginPage() {
     setIsLoading(true);
     setError("");
 
+    const emailLower = email.toLowerCase().trim();
+
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.toLowerCase().trim() }),
+      const { error: signInError } = await supabase.auth.signInWithOtp({
+        email: emailLower,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
       });
 
-      const data = await response.json();
-
-      if (data.success) {
-        // In demo mode, redirect directly to the magic link if provided
-        if (data.magicLink) {
-          window.location.href = data.magicLink;
-        } else {
-          setIsSubmitted(true);
-        }
+      if (signInError) {
+        console.error('Supabase auth error:', signInError);
+        setError(signInError.message || 'Failed to send magic link. Please try again.');
       } else {
-        setError(data.error || 'Login failed. Please check your email address.');
+        setIsSubmitted(true);
       }
     } catch (err) {
       console.error('Login error:', err);
@@ -78,7 +84,10 @@ export default function LoginPage() {
                 </div>
 
                 {error && (
-                  <p className="text-sm text-red-500 text-center">{error}</p>
+                  <div className="flex items-center gap-2 text-sm text-red-500">
+                    <AlertCircle className="h-4 w-4" />
+                    <span>{error}</span>
+                  </div>
                 )}
 
                 <button
@@ -102,10 +111,14 @@ export default function LoginPage() {
                 We sent a magic link to{" "}
                 <span className="font-medium text-card-foreground">{email}</span>
               </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Click the link in your email to sign in
+              </p>
               <button
                 onClick={() => {
                   setIsSubmitted(false);
                   setEmail("");
+                  setError("");
                 }}
                 className="mt-6 text-sm font-medium text-primary hover:underline"
               >
