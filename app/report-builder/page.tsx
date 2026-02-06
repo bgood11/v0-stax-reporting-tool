@@ -176,22 +176,33 @@ export default function ReportBuilderPage() {
           lenders: filters.lender.length > 0 ? filters.lender : undefined,
           retailers: filters.retailer.length > 0 ? filters.retailer : undefined,
           statuses: filters.status.length > 0 ? filters.status : undefined,
+          bdms: filters.bdm.length > 0 ? filters.bdm : undefined,
+          financeProducts: filters.financeProduct.length > 0 ? filters.financeProduct : undefined,
+          primeSubprime: filters.primeSubPrime !== 'all' ? [filters.primeSubPrime] : undefined,
         }),
       });
 
-      if (format === 'csv') {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `report_${Date.now()}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-      } else {
-        alert(`${format.toUpperCase()} export coming soon!`);
+      if (!response.ok) {
+        throw new Error(`Export failed with status ${response.status}`);
       }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+
+      if (format === 'csv') {
+        a.download = `stax-report-${new Date().toISOString().split('T')[0]}.csv`;
+      } else if (format === 'xlsx') {
+        a.download = `stax-report-${new Date().toISOString().split('T')[0]}.xlsx`;
+      } else {
+        a.download = `stax-report-${new Date().toISOString().split('T')[0]}.${format}`;
+      }
+
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Export failed:', err);
       alert('Export failed. Please try again.');

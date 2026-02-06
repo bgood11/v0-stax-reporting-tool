@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { generateReport } from '@/lib/report-service';
+import { generateExcelReport } from '@/lib/export-service';
 import type { ReportConfig } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
@@ -42,6 +43,24 @@ export async function POST(request: NextRequest) {
         { error: result.error || 'Export failed' },
         { status: 500 }
       );
+    }
+
+    // Export as XLSX
+    if (format === 'xlsx') {
+      const timestamp = new Date().toISOString().split('T')[0];
+      const buffer = await generateExcelReport({
+        data: result.data,
+        summary: result.summary,
+        reportName: body.name || 'Stax Report'
+      });
+
+      return new NextResponse(buffer, {
+        headers: {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="stax-report-${timestamp}.xlsx"`,
+          'Content-Length': buffer.length.toString()
+        }
+      });
     }
 
     // Export as CSV
