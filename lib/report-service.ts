@@ -6,6 +6,7 @@ import type {
   ReportFilters,
   ReportSummary
 } from './types';
+import type { AuthContext } from './middleware/auth';
 
 interface ReportResult {
   success: boolean;
@@ -21,10 +22,12 @@ interface GroupedData {
 
 /**
  * Generate a report based on config
+ * Accepts optional authContext for BDM row-level security
  */
 export async function generateReport(
   config: ReportConfig,
-  userId?: string
+  userId?: string,
+  authContext?: AuthContext
 ): Promise<ReportResult> {
   const supabase = createAdminClient();
 
@@ -32,7 +35,12 @@ export async function generateReport(
     // Build query with filters
     let query = supabase.from('application_decisions').select('*');
 
-    // Apply filters
+    // Apply user-based filters for BDM data isolation
+    if (authContext) {
+      query = applyAuthFilters(query, authContext);
+    }
+
+    // Apply report-specific filters
     if (config.filters) {
       query = applyFilters(query, config.filters);
     }
@@ -107,7 +115,29 @@ export async function generateReport(
 }
 
 /**
- * Apply filters to query
+ * Apply auth-based filters (BDM retailer assignments, etc)
+ * This ensures BDM users only see data from their assigned retailers
+ */
+function applyAuthFilters(query: any, authContext: AuthContext): any {
+  // If user is admin, no filtering needed
+  if (authContext.isAdmin) {
+    return query;
+  }
+
+  // If user is BDM, filter to assigned retailers
+  if (authContext.isBdm && authContext.assignedRetailers.length > 0) {
+    query = query.in('retailer_name', authContext.assignedRetailers);
+  } else if (authContext.isBdm && authContext.assignedRetailers.length === 0) {
+    // BDM with no assignments gets no data
+    // Use a filter that returns no results
+    query = query.eq('id', 'null-no-access');
+  }
+
+  return query;
+}
+
+/**
+ * Apply report-specific filters (date ranges, statuses, etc)
  */
 function applyFilters(query: any, filters: ReportFilters): any {
   if (filters.dateFrom) {
@@ -259,8 +289,9 @@ function getWeekStart(dateStr: string): string {
 
 /**
  * Get filter options from the database (distinct values)
+ * Accepts optional authContext for BDM data filtering
  */
-export async function getFilterOptions(): Promise<{
+export async function getFilterOptions(authContext?: AuthContext): Promise<{
   lenders: string[];
   retailers: string[];
   statuses: string[];
@@ -271,28 +302,50 @@ export async function getFilterOptions(): Promise<{
 }> {
   const supabase = createAdminClient();
 
+  // Build base query with auth filters
+  const buildQuery = (field: string) => {
+    let q = supabase.from('application_decisions').select(field).order(field);
+    if (authContext) {
+      q = applyAuthFilters(q, authContext);
+    }
+    return q;
+  };
+
   // Get distinct values for each filter field
   const [lenders, retailers, statuses, primeSubprime, bdms, products, dateRange] = await Promise.all([
-    supabase.from('application_decisions').select('lender_name').order('lender_name'),
-    supabase.from('application_decisions').select('retailer_name').order('retailer_name'),
-    supabase.from('application_decisions').select('status').order('status'),
-    supabase.from('application_decisions').select('prime_subprime').order('prime_subprime'),
-    supabase.from('application_decisions').select('bdm_name').order('bdm_name'),
-    supabase.from('application_decisions').select('finance_product').order('finance_product'),
-    supabase.from('application_decisions')
-      .select('submitted_date')
-      .order('submitted_date', { ascending: true })
-      .limit(1)
-      .then(async (min) => {
-        const max = await supabase.from('application_decisions')
-          .select('submitted_date')
-          .order('submitted_date', { ascending: false })
-          .limit(1);
-        return {
-          min: min.data?.[0]?.submitted_date || null,
-          max: max.data?.[0]?.submitted_date || null
-        };
-      })
+    buildQuery('lender_name'),
+    buildQuery('retailer_name'),
+    buildQuery('status'),
+    buildQuery('prime_subprime'),
+    buildQuery('bdm_name'),
+    buildQuery('finance_product'),
+    (async () => {
+      let minQuery = supabase.from('application_decisions')
+        .select('submitted_date')
+        .order('submitted_date', { ascending: true })
+        .limit(1);
+
+      if (authContext) {
+        minQuery = applyAuthFilters(minQuery, authContext);
+      }
+
+      const min = await minQuery;
+
+      let maxQuery = supabase.from('application_decisions')
+        .select('submitted_date')
+        .order('submitted_date', { ascending: false })
+        .limit(1);
+
+      if (authContext) {
+        maxQuery = applyAuthFilters(maxQuery, authContext);
+      }
+
+      const max = await maxQuery;
+      return {
+        min: min.data?.[0]?.submitted_date || null,
+        max: max.data?.[0]?.submitted_date || null
+      };
+    })()
   ]);
 
   // Extract unique values

@@ -1,15 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { generateReport } from '@/lib/report-service';
+import { getAuthContext } from '@/lib/middleware/auth';
 import type { ReportConfig } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
-  // Verify auth
+  // Verify auth and get user context
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
   if (authError || !user) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+
+  // Get auth context for BDM data isolation
+  let authContext;
+  try {
+    authContext = await getAuthContext();
+  } catch (contextError: any) {
+    return NextResponse.json({ error: contextError.message }, { status: 403 });
   }
 
   try {
@@ -34,8 +43,8 @@ export async function POST(request: NextRequest) {
       presetId: body.presetId
     };
 
-    // Generate the report
-    const result = await generateReport(config, user.id);
+    // Generate the report with auth context for BDM filtering
+    const result = await generateReport(config, user.id, authContext);
 
     if (!result.success) {
       return NextResponse.json(

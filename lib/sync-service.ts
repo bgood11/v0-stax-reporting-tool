@@ -1,5 +1,6 @@
 // Sync service for pulling Salesforce data into Supabase
 import { createAdminClient } from './supabase/server';
+import type { AuthContext } from './middleware/auth';
 import {
   fetchReportData,
   transformRecord,
@@ -204,14 +205,28 @@ export async function getSyncHistory(limit: number = 10) {
 /**
  * Get synced application decisions data from Supabase
  * Used for status checks and data samples
+ * Optional authContext filters data for BDM users
  */
-export async function getSyncedData(limit?: number) {
+export async function getSyncedData(limit?: number, authContext?: AuthContext) {
   const supabase = createAdminClient();
 
   let query = supabase
     .from('application_decisions')
     .select('*')
     .order('submitted_date', { ascending: false });
+
+  // Apply BDM filtering if authContext provided
+  if (authContext) {
+    if (authContext.isAdmin) {
+      // Admins see all data - no filtering
+    } else if (authContext.isBdm && authContext.assignedRetailers.length > 0) {
+      // BDMs only see their assigned retailers
+      query = query.in('retailer_name', authContext.assignedRetailers);
+    } else if (authContext.isBdm) {
+      // BDM with no assignments gets no data
+      query = query.eq('id', 'null-no-access');
+    }
+  }
 
   if (limit) {
     query = query.limit(limit);

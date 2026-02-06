@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getFilterOptions } from '@/lib/report-service';
+import { getAuthContext } from '@/lib/middleware/auth';
 
 export async function GET() {
   // Verify auth
@@ -11,8 +12,16 @@ export async function GET() {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
+  // Get auth context for BDM data filtering
+  let authContext;
   try {
-    const options = await getFilterOptions();
+    authContext = await getAuthContext();
+  } catch (contextError: any) {
+    return NextResponse.json({ error: contextError.message }, { status: 403 });
+  }
+
+  try {
+    const options = await getFilterOptions(authContext);
     return NextResponse.json(options);
   } catch (error: any) {
     console.error('Failed to get filter options:', error);
