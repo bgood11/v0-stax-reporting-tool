@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileBarChart, TrendingUp, DollarSign, Clock, RefreshCw, AlertCircle } from "lucide-react";
 import Link from "next/link";
+import { SyncStatus } from "@/components/dashboard/sync-status";
+import { EmptyState } from "@/components/report-results/empty-state";
 
 interface DashboardStats {
   totalApplications: number;
@@ -129,15 +131,16 @@ export default function DashboardPage() {
             <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         ) : error ? (
-          <Card className="bg-destructive/10 border-destructive">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <AlertCircle className="h-5 w-5 text-destructive" />
-                <p className="text-destructive">{error}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ) : stats ? (
+          <EmptyState
+            type="error"
+            title="Unable to load dashboard"
+            description={error}
+            action={{
+              label: "Refresh Page",
+              onClick: () => window.location.reload(),
+            }}
+          />
+        ) : stats && stats.totalApplications > 0 ? (
           <>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {statCards.map((stat) => (
@@ -157,37 +160,8 @@ export default function DashboardPage() {
               ))}
             </div>
 
-            {/* Last Sync Info */}
-            {stats.lastSync && (
-              <Card className="bg-card">
-                <CardHeader>
-                  <CardTitle className="text-foreground flex items-center gap-2">
-                    <Clock className="h-5 w-5" />
-                    Last Data Sync
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-wrap gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Status: </span>
-                      <span className={stats.lastSync.status === 'success' ? 'text-green-600' : 'text-red-500'}>
-                        {stats.lastSync.status}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Records: </span>
-                      <span className="text-foreground">{stats.lastSync.records_synced?.toLocaleString() || 0}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Completed: </span>
-                      <span className="text-foreground">
-                        {stats.lastSync.completed_at ? formatDate(stats.lastSync.completed_at) : 'In progress'}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            {/* Sync Status Component */}
+            <SyncStatus autoRefresh={true} refreshInterval={60000} />
 
             {/* Status Breakdown */}
             {stats.statusBreakdown && Object.keys(stats.statusBreakdown).length > 0 && (
@@ -211,13 +185,15 @@ export default function DashboardPage() {
             )}
           </>
         ) : (
-          <Card className="bg-muted/50">
-            <CardContent className="pt-6">
-              <p className="text-muted-foreground text-center">
-                No data available. Run a sync to pull data from Salesforce.
-              </p>
-            </CardContent>
-          </Card>
+          <EmptyState
+            type="no-sync"
+            title="No application data available"
+            description="No application data has been synced yet. Data syncs automatically at 1am each day."
+            action={{
+              label: "Build Report",
+              onClick: () => window.location.href = "/report-builder",
+            }}
+          />
         )}
 
         <Card className="bg-card">

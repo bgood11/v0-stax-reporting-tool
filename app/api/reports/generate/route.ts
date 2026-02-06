@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { generateReport } from '@/lib/report-service';
 import { getAuthContext } from '@/lib/middleware/auth';
+import { validateReportInput, createError, logError } from '@/lib/error-handler';
+import { createErrorResponse, createAuthErrorResponse, createForbiddenErrorResponse } from '@/lib/error-response';
 import type { ReportConfig } from '@/lib/types';
+
+const CONTEXT = 'reports/generate';
 
 export async function POST(request: NextRequest) {
   // Verify auth and get user context
@@ -10,7 +14,7 @@ export async function POST(request: NextRequest) {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    return createAuthErrorResponse(CONTEXT);
   }
 
   // Get auth context for BDM data isolation
@@ -18,11 +22,18 @@ export async function POST(request: NextRequest) {
   try {
     authContext = await getAuthContext();
   } catch (contextError: any) {
-    return NextResponse.json({ error: contextError.message }, { status: 403 });
+    const error = createError('FORBIDDEN', contextError.message);
+    return createErrorResponse(error, CONTEXT);
   }
 
   try {
     const body = await request.json();
+
+    // Validate input
+    const validationError = validateReportInput(body);
+    if (validationError) {
+      return createErrorResponse(validationError, CONTEXT);
+    }
 
     // Build report config from request
     const config: ReportConfig = {
@@ -47,10 +58,14 @@ export async function POST(request: NextRequest) {
     const result = await generateReport(config, user.id, authContext);
 
     if (!result.success) {
-      return NextResponse.json(
-        { error: result.error || 'Report generation failed' },
-        { status: 500 }
+      const error = createError(
+        'SERVER_ERROR',
+        result.error || 'Report generation failed',
+        {
+          userMessage: 'Unable to generate report. Please try again or contact support.'
+        }
       );
+      return createErrorResponse(error, CONTEXT);
     }
 
     return NextResponse.json({
@@ -66,10 +81,16 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Report generation error:', error);
-    return NextResponse.json(
-      { error: error.message || 'Internal server error' },
-      { status: 500 }
+    const appError = createError(
+      'SERVER_ERROR',
+      error.message || 'Report generation failed',
+      {
+        details: {
+          errorName: error.name,
+          stack: error.stack?.split('\n').slice(0, 3).join('\n')
+        }
+      }
     );
+    return createErrorResponse(appError, CONTEXT);
   }
 }

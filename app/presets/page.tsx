@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/report-results/empty-state";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -307,19 +308,24 @@ export default function PresetsPage() {
         {/* Built-in Presets */}
         <div className="space-y-4">
           <h3 className="text-lg font-semibold text-foreground">Built-in Presets</h3>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {filteredBuiltIn.map((preset) => (
-              <BuiltInPresetCard
-                key={preset.id}
-                preset={preset}
-                onRun={handleRunBuiltInPreset}
-              />
-            ))}
-          </div>
-          {filteredBuiltIn.length === 0 && (
-            <p className="text-center text-muted-foreground py-8">
-              No built-in presets match your search.
-            </p>
+          {filteredBuiltIn.length === 0 ? (
+            <div className="rounded-xl border border-border bg-muted/50">
+              <div className="py-12 px-4">
+                <p className="text-center text-muted-foreground text-sm">
+                  No built-in presets match your search. Try adjusting your filters or search terms.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {filteredBuiltIn.map((preset) => (
+                <BuiltInPresetCard
+                  key={preset.id}
+                  preset={preset}
+                  onRun={handleRunBuiltInPreset}
+                />
+              ))}
+            </div>
           )}
         </div>
 
@@ -358,14 +364,22 @@ export default function PresetsPage() {
             </div>
           )}
           {!loading && filteredCustom.length === 0 && searchQuery && (
-            <p className="text-center text-muted-foreground py-8">
-              No custom presets match your search.
-            </p>
+            <div className="rounded-xl border border-border bg-muted/50">
+              <div className="py-8 px-4">
+                <p className="text-center text-muted-foreground text-sm">
+                  No custom presets match your search. Try adjusting your filters or search terms.
+                </p>
+              </div>
+            </div>
           )}
           {!loading && customPresets.length === 0 && !searchQuery && (
-            <p className="text-center text-muted-foreground py-4">
-              You haven&apos;t created any custom presets yet. Generate a report and save it as a preset.
-            </p>
+            <div className="rounded-xl border border-border bg-muted/50">
+              <div className="py-8 px-4">
+                <p className="text-center text-muted-foreground text-sm">
+                  You haven&apos;t created any custom presets yet. Generate a report and save it as a preset for quick access.
+                </p>
+              </div>
+            </div>
           )}
         </div>
       </div>

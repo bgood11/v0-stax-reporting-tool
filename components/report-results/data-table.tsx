@@ -189,6 +189,101 @@ export function DataTable({ data, isGrouped = false }: DataTableProps) {
     );
   };
 
+  // Check if data is empty
+  if (data.length === 0) {
+    return (
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/50 hover:bg-muted/50">
+              <TableHead>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 hover:text-foreground transition-colors"
+                  onClick={() => handleSort("lender")}
+                >
+                  Lender
+                  <SortIcon field="lender" />
+                </button>
+              </TableHead>
+              <TableHead>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 hover:text-foreground transition-colors"
+                  onClick={() => handleSort("retailer")}
+                >
+                  Retailer
+                  <SortIcon field="retailer" />
+                </button>
+              </TableHead>
+              <TableHead>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 hover:text-foreground transition-colors"
+                  onClick={() => handleSort("status")}
+                >
+                  Status
+                  <SortIcon field="status" />
+                </button>
+              </TableHead>
+              <TableHead className="text-right">
+                <button
+                  type="button"
+                  className="flex items-center gap-2 ml-auto hover:text-foreground transition-colors"
+                  onClick={() => handleSort("loanValue")}
+                >
+                  Loan Value
+                  <SortIcon field="loanValue" />
+                </button>
+              </TableHead>
+              <TableHead className="text-right">
+                <button
+                  type="button"
+                  className="flex items-center gap-2 ml-auto hover:text-foreground transition-colors"
+                  onClick={() => handleSort("commission")}
+                >
+                  Commission
+                  <SortIcon field="commission" />
+                </button>
+              </TableHead>
+              <TableHead>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 hover:text-foreground transition-colors"
+                  onClick={() => handleSort("date")}
+                >
+                  Date
+                  <SortIcon field="date" />
+                </button>
+              </TableHead>
+              <TableHead>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 hover:text-foreground transition-colors"
+                  onClick={() => handleSort("bdm")}
+                >
+                  BDM
+                  <SortIcon field="bdm" />
+                </button>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow>
+              <TableCell colSpan={7} className="text-center py-12">
+                <div className="flex flex-col items-center justify-center">
+                  <p className="text-muted-foreground text-sm">
+                    No data to display. Check your filters or expand your date range.
+                  </p>
+                </div>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-border bg-card overflow-hidden">

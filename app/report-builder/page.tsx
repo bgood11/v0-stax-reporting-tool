@@ -20,6 +20,7 @@ import { SummaryCards, type SummaryData } from "@/components/report-results/summ
 import { ResultsHeader, type ViewMode } from "@/components/report-results/results-header";
 import { DataTable, type DataRow } from "@/components/report-results/data-table";
 import { LoadingSkeleton } from "@/components/report-results/loading-skeleton";
+import { EmptyState } from "@/components/report-results/empty-state";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -243,22 +244,28 @@ export default function ReportBuilderPage() {
           {isGenerating ? (
             <LoadingSkeleton />
           ) : error ? (
-            <Card className="bg-destructive/10 border-destructive">
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <AlertCircle className="h-5 w-5 text-destructive" />
-                  <p className="text-destructive">{error}</p>
-                </div>
-              </CardContent>
-            </Card>
+            <EmptyState
+              type="error"
+              title="Failed to generate report"
+              description={error}
+              action={{
+                label: "Try Again",
+                onClick: handleGenerate,
+              }}
+              secondaryAction={{
+                label: "Back to Builder",
+                onClick: handleBackToBuilder,
+              }}
+            />
           ) : reportData.length === 0 ? (
-            <Card className="bg-muted/50">
-              <CardContent className="pt-6">
-                <p className="text-center text-muted-foreground">
-                  No data found for the selected filters. Try adjusting your date range or filter criteria.
-                </p>
-              </CardContent>
-            </Card>
+            <EmptyState
+              type="no-results"
+              description="No applications match your filters. Try expanding your date range or clearing some filters to see results."
+              action={{
+                label: "Adjust Filters",
+                onClick: handleBackToBuilder,
+              }}
+            />
           ) : (
             <>
               {summary && <SummaryCards data={summary} />}

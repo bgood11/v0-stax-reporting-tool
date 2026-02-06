@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AppLayout } from "@/components/app-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Clock, FileBarChart, RefreshCw } from "lucide-react";
+import { EmptyState } from "@/components/report-results/empty-state";
 
 interface Report {
   id: string;
@@ -70,16 +71,15 @@ export default function HistoryPage() {
             <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         ) : reports.length === 0 ? (
-          <Card className="bg-muted/50">
-            <CardContent className="pt-6">
-              <div className="text-center py-8">
-                <FileBarChart className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">
-                  No reports generated yet. Go to the Report Builder to create your first report.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <EmptyState
+            type="no-data"
+            title="No reports generated yet"
+            description="Your generated reports will appear here. Start by building a report to see it in your history."
+            action={{
+              label: "Build Report",
+              onClick: () => window.location.href = "/report-builder",
+            }}
+          />
         ) : (
           <div className="grid gap-4">
             {reports.map((report) => (

@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getFilterOptions } from '@/lib/report-service';
 import { getAuthContext } from '@/lib/middleware/auth';
+import { createError } from '@/lib/error-handler';
+import { createErrorResponse, createAuthErrorResponse, createServerErrorResponse } from '@/lib/error-response';
+
+const CONTEXT = 'filters/options';
 
 export async function GET() {
   // Verify auth
@@ -9,7 +13,7 @@ export async function GET() {
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
   if (authError || !user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    return createAuthErrorResponse(CONTEXT);
   }
 
   // Get auth context for BDM data filtering
@@ -17,17 +21,21 @@ export async function GET() {
   try {
     authContext = await getAuthContext();
   } catch (contextError: any) {
-    return NextResponse.json({ error: contextError.message }, { status: 403 });
+    const error = createError('FORBIDDEN', contextError.message);
+    return createErrorResponse(error, CONTEXT);
   }
 
   try {
     const options = await getFilterOptions(authContext);
     return NextResponse.json(options);
   } catch (error: any) {
-    console.error('Failed to get filter options:', error);
-    return NextResponse.json(
-      { error: 'Failed to get filter options' },
-      { status: 500 }
+    const appError = createError(
+      'SERVER_ERROR',
+      error.message || 'Failed to get filter options',
+      {
+        userMessage: 'Unable to load filter options. Please refresh and try again.'
+      }
     );
+    return createErrorResponse(appError, CONTEXT);
   }
 }
