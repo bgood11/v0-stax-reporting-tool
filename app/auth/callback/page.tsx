@@ -1,79 +1,87 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export default function AuthCallbackPage() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
 
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        // Get the code from URL
-        const params = new URLSearchParams(window.location.search);
-        const code = params.get("code");
-        const error = params.get("error");
-        const errorDescription = params.get("error_description");
-
-        console.log("Auth callback params:", { code: !!code, error, errorDescription });
+        // Check for errors in URL params
+        const error = searchParams.get("error");
+        const errorDescription = searchParams.get("error_description");
 
         if (error) {
+          console.error('[Auth Callback] Error:', error, errorDescription);
           setStatus("error");
           setErrorMessage(errorDescription || error);
           return;
         }
 
+        // With implicit flow, the access token is in the URL hash
+        // Supabase client automatically detects and handles this
+        // Give it a moment to process
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Check if we have a session now
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+        if (sessionError) {
+          console.error('[Auth Callback] Session error:', sessionError);
+          setStatus("error");
+          setErrorMessage(sessionError.message);
+          return;
+        }
+
+        if (session) {
+          console.log('[Auth Callback] Session found, redirecting to dashboard');
+          setStatus("success");
+          setTimeout(() => router.push("/dashboard"), 1000);
+          return;
+        }
+
+        // No session yet - maybe there's a code to exchange (PKCE flow fallback)
+        const code = searchParams.get("code");
         if (code) {
-          // Exchange the code for a session using the Supabase client
-          // The client has access to the PKCE verifier stored in localStorage
+          console.log('[Auth Callback] Exchanging code for session...');
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
           if (exchangeError) {
-            console.error("Code exchange error:", exchangeError);
+            console.error('[Auth Callback] Exchange error:', exchangeError);
             setStatus("error");
             setErrorMessage(exchangeError.message);
             return;
           }
 
-          setStatus("success");
-          // Redirect to dashboard after successful auth
-          setTimeout(() => {
-            router.push("/dashboard");
-          }, 1000);
-        } else {
-          // No code - check if there's a hash fragment (implicit flow)
-          const hashParams = new URLSearchParams(window.location.hash.substring(1));
-          const accessToken = hashParams.get("access_token");
-
-          if (accessToken) {
-            // Session should be automatically set by Supabase client
-            const { data: { session } } = await supabase.auth.getSession();
-
-            if (session) {
-              setStatus("success");
-              setTimeout(() => {
-                router.push("/dashboard");
-              }, 1000);
-              return;
-            }
+          // Check session again after exchange
+          const { data: { session: newSession } } = await supabase.auth.getSession();
+          if (newSession) {
+            setStatus("success");
+            setTimeout(() => router.push("/dashboard"), 1000);
+            return;
           }
-
-          setStatus("error");
-          setErrorMessage("No authentication code received");
         }
+
+        // If we got here with no session, something went wrong
+        setStatus("error");
+        setErrorMessage("Unable to authenticate. Please try logging in again.");
+
       } catch (err: any) {
-        console.error("Auth callback error:", err);
+        console.error('[Auth Callback] Unexpected error:', err);
         setStatus("error");
         setErrorMessage(err.message || "Authentication failed");
       }
     };
 
     handleCallback();
-  }, [router, supabase.auth]);
+  }, [router, supabase.auth, searchParams]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -119,6 +127,17 @@ export default function AuthCallbackPage() {
             <p className="mt-2 text-sm text-red-500">
               {errorMessage || "Please try again"}
             </p>
+
+            {/* Debug info - remove in production */}
+            {debugInfo.length > 0 && (
+              <div className="mt-4 text-left p-3 bg-gray-100 rounded text-xs text-gray-600 max-h-32 overflow-auto">
+                <p className="font-semibold mb-1">Debug log:</p>
+                {debugInfo.map((msg, i) => (
+                  <p key={i}>{msg}</p>
+                ))}
+              </div>
+            )}
+
             <button
               onClick={() => router.push("/")}
               className="mt-6 rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"

@@ -16,8 +16,15 @@ export default function LoginPage() {
   // Check for auth errors in URL (from callback)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('error') === 'auth_callback_error') {
-      setError('Authentication failed. Please try again.');
+    const errorType = params.get('error');
+    const errorMsg = params.get('message');
+
+    if (errorType) {
+      if (errorMsg) {
+        setError(decodeURIComponent(errorMsg));
+      } else if (errorType === 'auth_callback_error' || errorType === 'auth_error') {
+        setError('Authentication failed. Please try again.');
+      }
     }
   }, []);
 
