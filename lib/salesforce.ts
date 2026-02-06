@@ -264,6 +264,9 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
       Retailer__r.Name,
       Retailer__r.Parent.Name,
 
+      /* BDM info - CONFIRMED field name */
+      BDM_Name__c,
+
       /* Waterfall position */
       Priority__c,
       Prime_Sub_Prime__c,
@@ -280,6 +283,7 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
       /* Financial values on AD */
       Loan_Amount__c,
       Purchase_Amount__c,
+      Shermin_Commission_Amount__c,
 
       /* Product info on AD */
       Product_Name__c,
@@ -332,8 +336,11 @@ export function transformSOQLRecord(raw: any): any {
   // Application Number: from Application__r
   const appNumber = raw.Application__r?.Application_Number__c || raw.Application__r?.Name || '';
 
-  // BDM: Not directly available, would need separate query or formula field
-  const bdmName = '';
+  // BDM: Direct field on Application_Decision__c
+  const bdmName = raw.BDM_Name__c || '';
+
+  // Commission: Direct field on Application_Decision__c
+  const commissionAmount = parseFloat(raw.Shermin_Commission_Amount__c || '0') || 0;
 
   // Fields from Application__r
   const apr = raw.Application__r?.APR__c || 0;
@@ -362,7 +369,7 @@ export function transformSOQLRecord(raw: any): any {
     purchase_amount: parseFloat(raw.Purchase_Amount__c || '0') || 0,
     deposit_amount: parseFloat(depositAmount || '0') || 0,
     loan_amount: parseFloat(raw.Loan_Amount__c || '0') || 0,
-    commission_amount: 0, // Commission field not found - may need separate query
+    commission_amount: commissionAmount,
     goods_description: goodsDescription,
     terms_month: parseInt(termsMonth || '0') || 0,
     apr: parseFloat(apr || '0') || 0,
