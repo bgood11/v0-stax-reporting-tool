@@ -47,7 +47,7 @@ export default function SettingsPage() {
   const [emailNotifications, setEmailNotifications] = React.useState(true);
   const [scheduleReminders, setScheduleReminders] = React.useState(true);
   const [adminAlerts, setAdminAlerts] = React.useState(true);
-  const [replyToEmail, setReplyToEmail] = React.useState("noreply@shermin.com.au");
+  const [replyToEmail, setReplyToEmail] = React.useState("noreply@sherminfinance.co.uk");
 
   // Preset Management
   const [allowCustomPresets, setAllowCustomPresets] = React.useState(true);

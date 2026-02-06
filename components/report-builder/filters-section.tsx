@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronUp, CalendarIcon, X } from "lucide-react";
+import { ChevronDown, ChevronUp, CalendarIcon, X, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Collapsible,
@@ -29,40 +29,19 @@ export interface FilterValues {
   primeSubPrime: string;
 }
 
+interface FilterOptions {
+  lenders: string[];
+  statuses: string[];
+  retailers: string[];
+  bdms: string[];
+  financeProducts: string[];
+}
+
 interface FiltersSectionProps {
   filters: FilterValues;
   onChange: (filters: FilterValues) => void;
 }
 
-const lenderOptions = [
-  "Pepper Money",
-  "Liberty",
-  "Latitude",
-  "Westpac",
-  "ANZ",
-  "NAB",
-  "CBA",
-];
-const statusOptions = [
-  "Submitted",
-  "Approved",
-  "Declined",
-  "Settled",
-  "Pending",
-];
-const retailerOptions = [
-  "Harvey Norman",
-  "JB Hi-Fi",
-  "The Good Guys",
-  "Officeworks",
-];
-const bdmOptions = ["John Smith", "Sarah Johnson", "Michael Brown", "Emily Davis"];
-const financeProductOptions = [
-  "Personal Loan",
-  "Car Loan",
-  "Home Loan",
-  "Credit Card",
-];
 const dateRangeOptions = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
@@ -82,12 +61,14 @@ function MultiSelect({
   selected,
   onSelect,
   placeholder,
+  loading,
 }: {
   label: string;
   options: string[];
   selected: string[];
   onSelect: (values: string[]) => void;
   placeholder: string;
+  loading?: boolean;
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -110,14 +91,21 @@ function MultiSelect({
       <div className="relative">
         <button
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={() => !loading && setIsOpen(!isOpen)}
+          disabled={loading}
           className={cn(
             "flex min-h-10 w-full items-center justify-between rounded-xl border border-input bg-background px-3 py-2 text-sm",
-            "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+            "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20",
+            loading && "opacity-50 cursor-not-allowed"
           )}
         >
           <div className="flex flex-wrap gap-1 flex-1">
-            {selected.length === 0 ? (
+            {loading ? (
+              <span className="text-muted-foreground flex items-center gap-2">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                Loading...
+              </span>
+            ) : selected.length === 0 ? (
               <span className="text-muted-foreground">{placeholder}</span>
             ) : (
               selected.map((item) => (
@@ -146,7 +134,7 @@ function MultiSelect({
           />
         </button>
 
-        {isOpen && (
+        {isOpen && !loading && options.length > 0 && (
           <div className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-popover p-1 shadow-lg">
             <div className="max-h-48 overflow-y-auto">
               {options.map((option) => (
@@ -191,6 +179,14 @@ function MultiSelect({
             </div>
           </div>
         )}
+
+        {isOpen && !loading && options.length === 0 && (
+          <div className="absolute z-50 mt-1 w-full rounded-xl border border-border bg-popover p-3 shadow-lg">
+            <p className="text-sm text-muted-foreground text-center">
+              No options available. Run a sync first.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -198,6 +194,33 @@ function MultiSelect({
 
 export function FiltersSection({ filters, onChange }: FiltersSectionProps) {
   const [isOpen, setIsOpen] = React.useState(true);
+  const [filterOptions, setFilterOptions] = React.useState<FilterOptions>({
+    lenders: [],
+    statuses: [],
+    retailers: [],
+    bdms: [],
+    financeProducts: [],
+  });
+  const [loading, setLoading] = React.useState(true);
+
+  // Fetch filter options from API
+  React.useEffect(() => {
+    fetch('/api/filters/options')
+      .then(res => res.json())
+      .then(data => {
+        if (!data.error) {
+          setFilterOptions({
+            lenders: data.lenders || [],
+            statuses: data.statuses || [],
+            retailers: data.retailers || [],
+            bdms: data.bdms || [],
+            financeProducts: data.financeProducts || [],
+          });
+        }
+      })
+      .catch(err => console.error('Failed to load filter options:', err))
+      .finally(() => setLoading(false));
+  }, []);
 
   const updateFilter = <K extends keyof FilterValues>(
     key: K,
@@ -263,42 +286,47 @@ export function FiltersSection({ filters, onChange }: FiltersSectionProps) {
 
             <MultiSelect
               label="Lender"
-              options={lenderOptions}
+              options={filterOptions.lenders}
               selected={filters.lender}
               onSelect={(values) => updateFilter("lender", values)}
               placeholder="Select lenders"
+              loading={loading}
             />
 
             <MultiSelect
               label="Status"
-              options={statusOptions}
+              options={filterOptions.statuses}
               selected={filters.status}
               onSelect={(values) => updateFilter("status", values)}
               placeholder="Select status"
+              loading={loading}
             />
 
             <MultiSelect
               label="Retailer"
-              options={retailerOptions}
+              options={filterOptions.retailers}
               selected={filters.retailer}
               onSelect={(values) => updateFilter("retailer", values)}
               placeholder="Select retailers"
+              loading={loading}
             />
 
             <MultiSelect
               label="BDM"
-              options={bdmOptions}
+              options={filterOptions.bdms}
               selected={filters.bdm}
               onSelect={(values) => updateFilter("bdm", values)}
               placeholder="Select BDM"
+              loading={loading}
             />
 
             <MultiSelect
               label="Finance Product"
-              options={financeProductOptions}
+              options={filterOptions.financeProducts}
               selected={filters.financeProduct}
               onSelect={(values) => updateFilter("financeProduct", values)}
               placeholder="Select products"
+              loading={loading}
             />
 
             <div className="space-y-2">

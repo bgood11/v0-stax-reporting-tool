@@ -21,33 +21,46 @@ import { ResultsHeader, type ViewMode } from "@/components/report-results/result
 import { DataTable, type DataRow } from "@/components/report-results/data-table";
 import { LoadingSkeleton } from "@/components/report-results/loading-skeleton";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, AlertCircle } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 
-// Sample data for demonstration
-const sampleData: DataRow[] = [
-  { id: "1", lender: "Pepper Money", retailer: "Harvey Norman", status: "Approved", loanValue: 45000, commission: 1350, date: "2026-01-15", bdm: "John Smith" },
-  { id: "2", lender: "Liberty", retailer: "JB Hi-Fi", status: "Settled", loanValue: 32000, commission: 960, date: "2026-01-14", bdm: "Sarah Johnson" },
-  { id: "3", lender: "Latitude", retailer: "The Good Guys", status: "Pending", loanValue: 28500, commission: 855, date: "2026-01-13", bdm: "Michael Brown" },
-  { id: "4", lender: "Westpac", retailer: "Officeworks", status: "Approved", loanValue: 55000, commission: 1650, date: "2026-01-12", bdm: "Emily Davis" },
-  { id: "5", lender: "ANZ", retailer: "Harvey Norman", status: "Declined", loanValue: 0, commission: 0, date: "2026-01-11", bdm: "John Smith" },
-  { id: "6", lender: "Pepper Money", retailer: "JB Hi-Fi", status: "Approved", loanValue: 38000, commission: 1140, date: "2026-01-10", bdm: "Sarah Johnson" },
-  { id: "7", lender: "NAB", retailer: "The Good Guys", status: "Settled", loanValue: 67000, commission: 2010, date: "2026-01-09", bdm: "Michael Brown" },
-  { id: "8", lender: "CBA", retailer: "Officeworks", status: "Pending", loanValue: 42000, commission: 1260, date: "2026-01-08", bdm: "Emily Davis" },
-  { id: "9", lender: "Liberty", retailer: "Harvey Norman", status: "Approved", loanValue: 51000, commission: 1530, date: "2026-01-07", bdm: "John Smith" },
-  { id: "10", lender: "Latitude", retailer: "JB Hi-Fi", status: "Settled", loanValue: 29500, commission: 885, date: "2026-01-06", bdm: "Sarah Johnson" },
-  { id: "11", lender: "Pepper Money", retailer: "The Good Guys", status: "Approved", loanValue: 63000, commission: 1890, date: "2026-01-05", bdm: "Michael Brown" },
-  { id: "12", lender: "Westpac", retailer: "Harvey Norman", status: "Pending", loanValue: 47500, commission: 1425, date: "2026-01-04", bdm: "Emily Davis" },
-];
+// Map date range presets to actual date values
+function getDateRange(preset: string): { dateFrom?: string; dateTo?: string } {
+  const today = new Date();
+  const formatDate = (d: Date) => d.toISOString().split('T')[0];
 
-const sampleSummary: SummaryData = {
-  totalRecords: 12,
-  totalLoanValue: 498500,
-  totalCommission: 14955,
-  approvalRate: 78,
-};
+  switch (preset) {
+    case "today":
+      return { dateFrom: formatDate(today), dateTo: formatDate(today) };
+    case "last7days":
+      const week = new Date(today);
+      week.setDate(week.getDate() - 7);
+      return { dateFrom: formatDate(week), dateTo: formatDate(today) };
+    case "last30days":
+      const month = new Date(today);
+      month.setDate(month.getDate() - 30);
+      return { dateFrom: formatDate(month), dateTo: formatDate(today) };
+    case "last90days":
+      const quarter = new Date(today);
+      quarter.setDate(quarter.getDate() - 90);
+      return { dateFrom: formatDate(quarter), dateTo: formatDate(today) };
+    case "thisMonth":
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      return { dateFrom: formatDate(monthStart), dateTo: formatDate(today) };
+    case "lastMonth":
+      const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+      return { dateFrom: formatDate(lastMonthStart), dateTo: formatDate(lastMonthEnd) };
+    case "thisYear":
+      const yearStart = new Date(today.getFullYear(), 0, 1);
+      return { dateFrom: formatDate(yearStart), dateTo: formatDate(today) };
+    default:
+      return {};
+  }
+}
 
 export default function ReportBuilderPage() {
-  const [reportType, setReportType] = React.useState<ReportType>("ap");
+  const [reportType, setReportType] = React.useState<ReportType>("ad");
   const [filters, setFilters] = React.useState<FilterValues>({
     dateRange: "last30days",
     lender: [],
@@ -66,33 +79,133 @@ export default function ReportBuilderPage() {
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [showResults, setShowResults] = React.useState(false);
   const [viewMode, setViewMode] = React.useState<ViewMode>("table");
+  const [reportData, setReportData] = React.useState<DataRow[]>([]);
+  const [summary, setSummary] = React.useState<SummaryData | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   const handleGenerate = async () => {
     setIsGenerating(true);
     setShowResults(true);
-    // Simulate report generation
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    setIsGenerating(false);
+    setError(null);
+
+    try {
+      const dateRange = getDateRange(filters.dateRange);
+
+      const response = await fetch('/api/reports/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `${reportType.toUpperCase()} Report`,
+          reportType: reportType.toUpperCase(),
+          groupBy: grouping.map(g => g.value),
+          metrics: metrics,
+          dateFrom: dateRange.dateFrom,
+          dateTo: dateRange.dateTo,
+          lenders: filters.lender.length > 0 ? filters.lender : undefined,
+          retailers: filters.retailer.length > 0 ? filters.retailer : undefined,
+          statuses: filters.status.length > 0 ? filters.status : undefined,
+          bdms: filters.bdm.length > 0 ? filters.bdm : undefined,
+          financeProducts: filters.financeProduct.length > 0 ? filters.financeProduct : undefined,
+          primeSubprime: filters.primeSubPrime !== 'all' ? [filters.primeSubPrime] : undefined,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        setError(data.error);
+        setReportData([]);
+        setSummary(null);
+      } else {
+        // Transform API data to DataRow format
+        const rows: DataRow[] = (data.data || []).map((row: any, index: number) => ({
+          id: String(index + 1),
+          lender: row.lender_name || row.lender || '-',
+          retailer: row.retailer_name || row.retailer || '-',
+          status: row.status || '-',
+          loanValue: row.loan_value || row.loan_amount || 0,
+          commission: row.commission || row.commission_amount || 0,
+          date: row.submitted_date || row.date || '-',
+          bdm: row.bdm_name || row.bdm || '-',
+          // Include any grouped fields
+          ...row,
+        }));
+
+        setReportData(rows);
+        setSummary({
+          totalRecords: data.summary?.totalRecords || rows.length,
+          totalLoanValue: data.summary?.totalLoanValue || 0,
+          totalCommission: data.summary?.totalCommission || 0,
+          approvalRate: Math.round(data.summary?.approvalRate || 0),
+        });
+      }
+    } catch (err: any) {
+      console.error('Report generation failed:', err);
+      setError(err.message || 'Failed to generate report');
+      setReportData([]);
+      setSummary(null);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleSavePreset = () => {
-    alert("Preset saved!");
+    // TODO: Implement preset saving
+    alert("Preset saving coming soon!");
   };
 
   const handleSchedule = () => {
-    alert("Schedule dialog would open here");
+    // TODO: Implement scheduling
+    alert("Report scheduling coming soon!");
   };
 
-  const handleExport = (format: "csv" | "xlsx" | "pdf") => {
-    alert(`Exporting as ${format.toUpperCase()}`);
+  const handleExport = async (format: "csv" | "xlsx" | "pdf") => {
+    try {
+      const dateRange = getDateRange(filters.dateRange);
+
+      const response = await fetch('/api/reports/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          format,
+          reportType: reportType.toUpperCase(),
+          groupBy: grouping.map(g => g.value),
+          metrics: metrics,
+          dateFrom: dateRange.dateFrom,
+          dateTo: dateRange.dateTo,
+          lenders: filters.lender.length > 0 ? filters.lender : undefined,
+          retailers: filters.retailer.length > 0 ? filters.retailer : undefined,
+          statuses: filters.status.length > 0 ? filters.status : undefined,
+        }),
+      });
+
+      if (format === 'csv') {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `report_${Date.now()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        alert(`${format.toUpperCase()} export coming soon!`);
+      }
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Export failed. Please try again.');
+    }
   };
 
   const handleShare = () => {
-    alert("Share dialog would open here");
+    // TODO: Implement sharing
+    alert("Report sharing coming soon!");
   };
 
   const handleBackToBuilder = () => {
     setShowResults(false);
+    setError(null);
   };
 
   const canGenerate = metrics.length > 0;
@@ -111,24 +224,41 @@ export default function ReportBuilderPage() {
                 Report Results
               </h2>
               <p className="text-muted-foreground">
-                {reportType === "ap" ? "AP" : "AD"} Report - Last 30 Days
+                {reportType.toUpperCase()} Report - {filters.dateRange}
               </p>
             </div>
           </div>
 
           {isGenerating ? (
             <LoadingSkeleton />
+          ) : error ? (
+            <Card className="bg-destructive/10 border-destructive">
+              <CardContent className="pt-6">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="h-5 w-5 text-destructive" />
+                  <p className="text-destructive">{error}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : reportData.length === 0 ? (
+            <Card className="bg-muted/50">
+              <CardContent className="pt-6">
+                <p className="text-center text-muted-foreground">
+                  No data found for the selected filters. Try adjusting your date range or filter criteria.
+                </p>
+              </CardContent>
+            </Card>
           ) : (
             <>
-              <SummaryCards data={sampleSummary} />
+              {summary && <SummaryCards data={summary} />}
               <ResultsHeader
-                recordCount={sampleData.length}
+                recordCount={reportData.length}
                 viewMode={viewMode}
                 onViewModeChange={setViewMode}
                 onExport={handleExport}
                 onShare={handleShare}
               />
-              <DataTable data={sampleData} />
+              <DataTable data={reportData} />
             </>
           )}
         </div>
