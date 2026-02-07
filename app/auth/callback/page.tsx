@@ -1,13 +1,11 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 function AuthCallbackContent() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("");
-  const router = useRouter();
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -66,7 +64,8 @@ function AuthCallbackContent() {
           // Clear the hash from the URL for security
           window.history.replaceState(null, '', window.location.pathname);
 
-          setTimeout(() => router.push("/dashboard"), 1000);
+          // Use hard redirect to ensure cookies are sent to server
+          setTimeout(() => window.location.href = '/dashboard', 1000);
           return;
         }
 
@@ -83,7 +82,8 @@ function AuthCallbackContent() {
         if (session) {
           console.log('[Auth Callback] Existing session found');
           setStatus("success");
-          setTimeout(() => router.push("/dashboard"), 1000);
+          // Use hard redirect to ensure cookies are sent to server
+          setTimeout(() => window.location.href = '/dashboard', 1000);
           return;
         }
 
@@ -99,7 +99,7 @@ function AuthCallbackContent() {
     };
 
     handleCallback();
-  }, [router]);
+  }, []);
 
   return (
     <div className="w-full max-w-md rounded-2xl bg-card p-8 shadow-xl text-center">
@@ -145,7 +145,7 @@ function AuthCallbackContent() {
             {errorMessage || "Please try again"}
           </p>
           <button
-            onClick={() => router.push("/")}
+            onClick={() => window.location.href = '/'}
             className="mt-6 rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
           >
             Back to Login
