@@ -217,7 +217,32 @@ The admin UI and auth middleware use different tables:
 
 ## Recent Changes (2026-02-07)
 
-### Session: Fix Salesforce Sync and Dashboard Issues
+### Session 2: SQL Aggregation Fix for Dashboard and Filters
+
+**Problem:** After first fix, dashboard still showed incorrect stats:
+- Status breakdown only showing 1000 total (553 + 447)
+- Filters still empty
+- Approval Rate showing 100% (calculated from incomplete data)
+
+**Root Cause:** Supabase has practical row limits that even `.limit(500000)` can't bypass
+
+**Solution:** Created PostgreSQL RPC functions for efficient SQL aggregation:
+- `get_dashboard_stats()` - returns totals and status breakdown via SQL GROUP BY
+- `get_all_filter_options()` - returns distinct values via SQL DISTINCT
+- Individual functions for each filter type
+
+**Migration Required:** Run SQL in:
+`/supabase/migrations/20260207_add_dashboard_aggregation_functions.sql`
+
+**Files Changed:**
+- `/lib/report-service.ts` - Uses RPC functions, with fallback queries
+- `/supabase/migrations/20260207_add_dashboard_aggregation_functions.sql` - New
+
+**Commit:** `9c00e04` - fix: Use SQL aggregation for dashboard stats and filters
+
+---
+
+### Session 1: Fix Salesforce Sync and Dashboard Issues
 
 **Problem Summary:**
 1. Record count discrepancy: SOQL returning 157k records vs 222k+ expected
