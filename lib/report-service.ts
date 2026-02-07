@@ -33,7 +33,8 @@ export async function generateReport(
 
   try {
     // Build query with filters
-    let query = supabase.from('application_decisions').select('*');
+    // FIXED: Added high limit to bypass Supabase's default 1000 row limit
+    let query = supabase.from('application_decisions').select('*').limit(500000);
 
     // Apply user-based filters for BDM data isolation
     if (authContext) {
@@ -308,8 +309,9 @@ export async function getFilterOptions(authContext?: AuthContext): Promise<{
   const supabase = createAdminClient();
 
   // Build base query with auth filters
+  // FIXED: Added high limit to bypass Supabase's default 1000 row limit
   const buildQuery = (field: string) => {
-    let q = supabase.from('application_decisions').select(field).order(field);
+    let q = supabase.from('application_decisions').select(field).order(field).limit(500000);
     if (authContext) {
       q = applyAuthFilters(q, authContext);
     }
@@ -420,39 +422,47 @@ export async function getReportPresets(userId?: string) {
 
 /**
  * Get dashboard stats
+ * FIXED: Use proper Supabase count and remove default 1000 row limit
  */
 export async function getDashboardStats() {
   const supabase = createAdminClient();
 
-  // Get counts by status
-  const { data: statusCounts, error: statusError } = await supabase
+  // Get total count using Supabase's count functionality (no row limit)
+  const { count: totalApplications, error: countError } = await supabase
+    .from('application_decisions')
+    .select('*', { count: 'exact', head: true });
+
+  if (countError) {
+    console.error('Failed to get total count:', countError);
+  }
+
+  // Get status counts - fetch ALL rows to aggregate properly
+  // Using a high limit to bypass Supabase's default 1000 row limit
+  const { data: statusData, error: statusError } = await supabase
     .from('application_decisions')
     .select('status')
-    .then(async (result) => {
-      if (result.error) return { data: null, error: result.error };
+    .limit(500000);
 
-      const counts: Record<string, number> = {};
-      for (const row of result.data || []) {
-        const status = row.status || 'Unknown';
-        counts[status] = (counts[status] || 0) + 1;
-      }
-      return { data: counts, error: null };
-    });
-
-  if (statusError) {
+  let statusCounts: Record<string, number> = {};
+  if (!statusError && statusData) {
+    for (const row of statusData) {
+      const status = row.status || 'Unknown';
+      statusCounts[status] = (statusCounts[status] || 0) + 1;
+    }
+  } else if (statusError) {
     console.error('Failed to get status counts:', statusError);
   }
 
-  // Get totals
+  // Get totals - fetch ALL rows for accurate sums
   const { data: totals, error: totalsError } = await supabase
     .from('application_decisions')
-    .select('loan_amount, commission_amount');
+    .select('loan_amount, commission_amount')
+    .limit(500000);
 
   if (totalsError) {
     console.error('Failed to get totals:', totalsError);
   }
 
-  const totalApplications = totals?.length || 0;
   const totalLoanValue = totals?.reduce((sum, r) => sum + (r.loan_amount || 0), 0) || 0;
   const totalCommission = totals?.reduce((sum, r) => sum + (r.commission_amount || 0), 0) || 0;
 
@@ -465,10 +475,10 @@ export async function getDashboardStats() {
     .single();
 
   return {
-    totalApplications,
+    totalApplications: totalApplications || 0,
     totalLoanValue,
     totalCommission,
-    statusBreakdown: statusCounts || {},
+    statusBreakdown: statusCounts,
     lastSync: lastSync || null
   };
 }

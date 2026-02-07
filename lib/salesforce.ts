@@ -336,7 +336,6 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
       Application__r.Opportunity__r.Shermin_Commission_Amount__c,
       Application__r.Opportunity__r.Finance_Product2__c
     FROM Application_Decision__c
-    WHERE Active__c = true
     ORDER BY CreatedDate DESC
   `;
 
