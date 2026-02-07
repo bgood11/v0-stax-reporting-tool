@@ -50,9 +50,20 @@ Internal reporting tool for Shermin Finance to visualize and analyze Salesforce 
 - GET `/api/sync?action=status` checks last sync status
 
 ### Key Salesforce Fields
-- `BDM_Name__c` - Business Development Manager name
-- `Shermin_Commission_Amount__c` - Commission amount
-- Primary object: `Application_Decision__c`
+Primary object: `Application_Decision__c`
+
+**IMPORTANT FIELD NOTES (discovered 2026-02-07):**
+- `BDM_Name__c` does NOT exist directly on Application_Decision__c
+- BDM data comes from: `Application__r.BDM__r.Name` (via Application relationship)
+- The Reports API returns BDM as `'BDM Name'` column (human-readable label)
+- `Shermin_Commission_Amount__c` - Commission amount (direct on AD)
+- `Lender_Name__c` or `Lender__r.Name` - Lender info
+- Use `/api/salesforce/describe` endpoint to discover correct field names
+
+**SOQL vs Reports API:**
+- SOQL: Uses API field names (e.g., `Lender__r.Name`, `Application__r.BDM__c`)
+- Reports API: Uses report column labels (e.g., `'BDM Name'`, `'Lender Name'`)
+- Reports API is limited to 2,000 rows; SOQL has no limit (uses pagination)
 
 ## Important Files
 
