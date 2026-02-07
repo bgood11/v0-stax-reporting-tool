@@ -215,6 +215,70 @@ The admin UI and auth middleware use different tables:
 **Impact:** Single retailer in admin UI vs multi-retailer in auth system
 **Future Fix:** Unify on `profiles` table + `bdm_retailer_assignments` for multi-retailer support
 
+## Recent Changes (2026-02-07)
+
+### Session: Fix Salesforce Sync and Dashboard Issues
+
+**Problem Summary:**
+1. Record count discrepancy: SOQL returning 157k records vs 222k+ expected
+2. Dashboard showing 1,000 applications instead of 157k synced
+3. Report Builder filters showing "No options available. Run a sync first."
+
+**Root Causes Identified:**
+
+1. **SOQL WHERE clause filtering**: Query had `WHERE Active__c = true` excluding ~65k inactive records
+2. **Supabase default 1000 row limit**: All `.select()` calls without explicit `.limit()` only return 1000 rows
+3. **Same limit issue**: Filter options and dashboard stats were all capped at 1000 rows
+
+**Fixes Applied:**
+
+1. **`/lib/salesforce.ts`** (line 339):
+   - Removed `WHERE Active__c = true` from SOQL query
+   - Now fetches ALL Application_Decision__c records regardless of active status
+
+2. **`/lib/report-service.ts`** - Multiple fixes:
+   - **`generateReport()`** (line 36): Added `.limit(500000)` to bypass default 1000 limit
+   - **`getFilterOptions()`** (line 312): Added `.limit(500000)` to `buildQuery()` function
+   - **`getDashboardStats()`** (lines 424-474): Complete rewrite:
+     - Uses `{ count: 'exact', head: true }` for accurate total count
+     - Added `.limit(500000)` to status and totals queries
+
+**Commits:**
+- `1c5c695` - fix: Resolve record count and query limit issues (2026-02-07)
+- `ffe0fe2` - docs: Update Salesforce field documentation with verified paths
+- `562d15b` - fix: Use correct Salesforce field paths (verified via MCP)
+- `d089f35` - docs: Update Salesforce field documentation with correct mappings
+- `88f3070` - fix: Resolve Salesforce sync issues - SOQL fields and null IDs
+- `d45fb77` - fix: Remove /* */ comments from SOQL query
+- `06591a9` - feat: Refactor data isolation from retailer to BDM name filtering
+
+**Testing Required:**
+1. Trigger a new sync - should fetch 220k+ records (not 157k)
+2. Check dashboard - should show actual total count (not 1,000)
+3. Test Report Builder - filters should populate with all available options
+
+**Excel Data Analysis (uploaded file):**
+- Excel export was truncated at 100k rows (Salesforce export limit)
+- Contains 27 columns including BDM Name, Lender, Retailer, dates, amounts
+- 17 unique BDM names, 7 lenders
+- Date range: 2023-01-12 to 2026-02-07
+
+### Previous Session: BDM Data Isolation Refactor
+
+**Change:** Switched from retailer-based filtering to BDM name filtering
+- Users now assigned to specific BDM names (not retailers)
+- `user_bdm_assignments` table stores `user_email` → `bdm_name` mappings
+- BDM data comes from `Retailer__r.Owner.Name` (Account Owner is the BDM)
+- Created SQL migration: `/supabase/migrations/20260206_create_bdm_retailer_assignments.sql`
+
+### Previous Session: SOQL Field Discovery (via Salesforce MCP)
+
+**Key Discoveries:**
+- BDM Name: `Retailer__r.Owner.Name` (NOT `BDM_Name__c`)
+- Commission: `Application__r.Opportunity__r.Shermin_Commission_Amount__c`
+- Finance Product: `Application__r.Opportunity__r.Finance_Product2__c`
+- SOQL doesn't support `/* */` comments (only `//` line comments)
+
 ## Notes
 - UK locale throughout (dates, currency)
 - Email domain: @sherminfinance.co.uk
