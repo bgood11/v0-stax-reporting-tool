@@ -60,10 +60,23 @@ export async function syncDataToSupabase(): Promise<SyncResult> {
 
       rawData = await fetchReportData();
       console.log(`Fetched ${rawData.length} records from Salesforce via Reports API (limited to 2,000)`);
-      records = rawData.map(transformRecord);
+
+      // Log field names from first record to help debug mapping issues
+      if (rawData.length > 0) {
+        console.log('Reports API field names:', Object.keys(rawData[0]).join(', '));
+      }
+
+      // Transform with index for synthetic ID generation
+      records = rawData.map((raw, index) => transformRecord(raw, index));
     }
 
     console.log(`Transformed ${records.length} records`);
+
+    // Validate records have IDs before proceeding
+    const recordsWithNullIds = records.filter(r => !r.id);
+    if (recordsWithNullIds.length > 0) {
+      console.error(`WARNING: ${recordsWithNullIds.length} records have null IDs. First one:`, recordsWithNullIds[0]);
+    }
 
     // Delete all existing application decisions (fresh sync)
     console.log('Clearing existing data...');
@@ -84,34 +97,42 @@ export async function syncDataToSupabase(): Promise<SyncResult> {
       const batch = records.slice(i, i + BATCH_SIZE);
 
       // Map our record format to database schema
-      const dbRecords = batch.map(r => ({
-        id: r.id,
-        application_number: r.ap_number,
-        lender_name: r.lender_name,
-        status: r.derived_status,
-        submitted_date: r.created_date,
-        approved_date: r.approved_date,
-        declined_date: r.rejected_date,
-        contract_signed_date: r.contract_signed_date,
-        live_date: r.live_date,
-        cancelled_date: r.cancelled_date,
-        expired_date: r.expired_date,
-        referred_date: r.referred_date,
-        loan_amount: r.loan_amount || null,
-        deposit_amount: r.deposit_amount || null,
-        goods_amount: r.purchase_amount || null,
-        retailer_name: r.retailer_name,
-        parent_company: r.parent_company,
-        bdm_name: r.bdm_name,
-        finance_product: r.finance_product,
-        apr: r.apr || null,
-        term_months: r.terms_month || null,
-        deferral_months: r.deferral_period || null,
-        prime_subprime: r.prime_subprime,
-        priority: r.priority || null,
-        commission_amount: r.commission_amount || null,
-        synced_at: new Date().toISOString()
-      }));
+      // Filter out any records with null IDs to prevent DB constraint violations
+      const dbRecords = batch
+        .filter(r => r.id) // Skip records without IDs
+        .map(r => ({
+          id: r.id,
+          application_number: r.ap_number || null,
+          lender_name: r.lender_name || null,
+          status: r.derived_status || 'Created',
+          submitted_date: r.created_date || null,
+          approved_date: r.approved_date || null,
+          declined_date: r.rejected_date || null,
+          contract_signed_date: r.contract_signed_date || null,
+          live_date: r.live_date || null,
+          cancelled_date: r.cancelled_date || null,
+          expired_date: r.expired_date || null,
+          referred_date: r.referred_date || null,
+          loan_amount: r.loan_amount || null,
+          deposit_amount: r.deposit_amount || null,
+          goods_amount: r.purchase_amount || null,
+          retailer_name: r.retailer_name || null,
+          parent_company: r.parent_company || null,
+          bdm_name: r.bdm_name || null,
+          finance_product: r.finance_product || null,
+          apr: r.apr || null,
+          term_months: r.terms_month || null,
+          deferral_months: r.deferral_period || null,
+          prime_subprime: r.prime_subprime || null,
+          priority: r.priority || null,
+          commission_amount: r.commission_amount || null,
+          synced_at: new Date().toISOString()
+        }));
+
+      if (dbRecords.length === 0) {
+        console.log(`Skipping batch at ${i} - all records had null IDs`);
+        continue;
+      }
 
       const { error: insertError } = await supabase
         .from('application_decisions')
@@ -119,6 +140,7 @@ export async function syncDataToSupabase(): Promise<SyncResult> {
 
       if (insertError) {
         console.error(`Batch insert failed at ${i}:`, insertError);
+        console.error('First record in failed batch:', JSON.stringify(dbRecords[0], null, 2));
         throw new Error(`Failed to insert batch at ${i}: ${insertError.message}`);
       }
 
