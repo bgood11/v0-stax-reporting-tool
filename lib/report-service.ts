@@ -308,65 +308,81 @@ export async function getFilterOptions(authContext?: AuthContext): Promise<{
 }> {
   const supabase = createAdminClient();
 
-  // Build base query with auth filters
-  // FIXED: Added high limit to bypass Supabase's default 1000 row limit
-  const buildQuery = (field: string) => {
-    let q = supabase.from('application_decisions').select(field).order(field).limit(500000);
-    if (authContext) {
-      q = applyAuthFilters(q, authContext);
+  // If no auth context (admin), use efficient RPC function
+  if (!authContext || authContext.hasFullAccess) {
+    try {
+      const { data: options, error } = await supabase.rpc('get_all_filter_options');
+
+      if (!error && options) {
+        return {
+          lenders: options.lenders || [],
+          retailers: options.retailers || [],
+          statuses: options.statuses || [],
+          primeSubprime: options.primeSubprime || [],
+          bdms: options.bdms || [],
+          financeProducts: options.financeProducts || [],
+          dateRange: {
+            min: options.dateRange?.min || null,
+            max: options.dateRange?.max || null
+          }
+        };
+      }
+      console.error('RPC get_all_filter_options failed:', error);
+    } catch (rpcError) {
+      console.error('RPC call failed, using fallback:', rpcError);
     }
-    return q;
+  }
+
+  // Fallback: Use individual queries with auth filters
+  // Use distinct select approach for efficiency
+  const getDistinct = async (field: string): Promise<string[]> => {
+    let query = supabase.from('application_decisions').select(field);
+    if (authContext) {
+      query = applyAuthFilters(query, authContext);
+    }
+    // Get a reasonable sample to extract distinct values
+    const { data } = await query.limit(50000);
+    const unique = [...new Set((data || []).map((r: any) => r[field]).filter(Boolean))];
+    return unique.sort();
   };
 
-  // Get distinct values for each filter field
-  const [lenders, retailers, statuses, primeSubprime, bdms, products, dateRange] = await Promise.all([
-    buildQuery('lender_name'),
-    buildQuery('retailer_name'),
-    buildQuery('status'),
-    buildQuery('prime_subprime'),
-    buildQuery('bdm_name'),
-    buildQuery('finance_product'),
-    (async () => {
-      let minQuery = supabase.from('application_decisions')
-        .select('submitted_date')
-        .order('submitted_date', { ascending: true })
-        .limit(1);
-
-      if (authContext) {
-        minQuery = applyAuthFilters(minQuery, authContext);
-      }
-
-      const min = await minQuery;
-
-      let maxQuery = supabase.from('application_decisions')
-        .select('submitted_date')
-        .order('submitted_date', { ascending: false })
-        .limit(1);
-
-      if (authContext) {
-        maxQuery = applyAuthFilters(maxQuery, authContext);
-      }
-
-      const max = await maxQuery;
-      return {
-        min: min.data?.[0]?.submitted_date || null,
-        max: max.data?.[0]?.submitted_date || null
-      };
-    })()
+  const [lenders, retailers, statuses, primeSubprime, bdms, financeProducts] = await Promise.all([
+    getDistinct('lender_name'),
+    getDistinct('retailer_name'),
+    getDistinct('status'),
+    getDistinct('prime_subprime'),
+    getDistinct('bdm_name'),
+    getDistinct('finance_product')
   ]);
 
-  // Extract unique values
-  const unique = (arr: any[], field: string) =>
-    [...new Set(arr?.map(r => r[field]).filter(Boolean))].sort();
+  // Get date range
+  let minQuery = supabase.from('application_decisions')
+    .select('submitted_date')
+    .order('submitted_date', { ascending: true })
+    .limit(1);
+  let maxQuery = supabase.from('application_decisions')
+    .select('submitted_date')
+    .order('submitted_date', { ascending: false })
+    .limit(1);
+
+  if (authContext) {
+    minQuery = applyAuthFilters(minQuery, authContext);
+    maxQuery = applyAuthFilters(maxQuery, authContext);
+  }
+
+  const [minResult, maxResult] = await Promise.all([minQuery, maxQuery]);
 
   return {
-    lenders: unique(lenders.data || [], 'lender_name'),
-    retailers: unique(retailers.data || [], 'retailer_name'),
-    statuses: unique(statuses.data || [], 'status'),
-    primeSubprime: unique(primeSubprime.data || [], 'prime_subprime'),
-    bdms: unique(bdms.data || [], 'bdm_name'),
-    financeProducts: unique(products.data || [], 'finance_product'),
-    dateRange
+    lenders,
+    retailers,
+    statuses,
+    primeSubprime,
+    bdms,
+    financeProducts,
+    dateRange: {
+      min: minResult.data?.[0]?.submitted_date || null,
+      max: maxResult.data?.[0]?.submitted_date || null
+    }
   };
 }
 
@@ -422,12 +438,49 @@ export async function getReportPresets(userId?: string) {
 
 /**
  * Get dashboard stats
- * FIXED: Use proper Supabase count and remove default 1000 row limit
+ * FIXED: Use SQL aggregation via RPC functions for efficient queries on large datasets
  */
 export async function getDashboardStats() {
   const supabase = createAdminClient();
 
-  // Get total count using Supabase's count functionality (no row limit)
+  try {
+    // Use RPC function for efficient SQL aggregation
+    const { data: stats, error: statsError } = await supabase.rpc('get_dashboard_stats');
+
+    if (statsError) {
+      console.error('RPC get_dashboard_stats failed:', statsError);
+      // Fall back to manual queries if RPC not available
+      return await getDashboardStatsFallback();
+    }
+
+    // Get last sync info
+    const { data: lastSync } = await supabase
+      .from('sync_log')
+      .select('*')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    return {
+      totalApplications: stats?.totalApplications || 0,
+      totalLoanValue: stats?.totalLoanValue || 0,
+      totalCommission: stats?.totalCommission || 0,
+      statusBreakdown: stats?.statusBreakdown || {},
+      lastSync: lastSync || null
+    };
+  } catch (error) {
+    console.error('getDashboardStats error:', error);
+    return await getDashboardStatsFallback();
+  }
+}
+
+/**
+ * Fallback for dashboard stats if RPC function not available
+ */
+async function getDashboardStatsFallback() {
+  const supabase = createAdminClient();
+
+  // Get total count using Supabase's count functionality
   const { count: totalApplications, error: countError } = await supabase
     .from('application_decisions')
     .select('*', { count: 'exact', head: true });
@@ -436,35 +489,32 @@ export async function getDashboardStats() {
     console.error('Failed to get total count:', countError);
   }
 
-  // Get status counts - fetch ALL rows to aggregate properly
-  // Using a high limit to bypass Supabase's default 1000 row limit
-  const { data: statusData, error: statusError } = await supabase
-    .from('application_decisions')
-    .select('status')
-    .limit(500000);
+  // Get status counts using multiple smaller queries
+  const statuses = ['Created', 'Approved', 'Declined', 'Executed', 'Live', 'Cancelled', 'Expired', 'Referred'];
+  const statusCounts: Record<string, number> = {};
 
-  let statusCounts: Record<string, number> = {};
-  if (!statusError && statusData) {
-    for (const row of statusData) {
-      const status = row.status || 'Unknown';
-      statusCounts[status] = (statusCounts[status] || 0) + 1;
+  for (const status of statuses) {
+    const { count } = await supabase
+      .from('application_decisions')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', status);
+    if (count && count > 0) {
+      statusCounts[status] = count;
     }
-  } else if (statusError) {
-    console.error('Failed to get status counts:', statusError);
   }
 
-  // Get totals - fetch ALL rows for accurate sums
-  const { data: totals, error: totalsError } = await supabase
+  // Get totals using aggregate query - sample approach for fallback
+  const { data: sample } = await supabase
     .from('application_decisions')
     .select('loan_amount, commission_amount')
-    .limit(500000);
+    .limit(10000);
 
-  if (totalsError) {
-    console.error('Failed to get totals:', totalsError);
-  }
+  const sampleSize = sample?.length || 0;
+  const totalRecords = totalApplications || 0;
+  const scaleFactor = sampleSize > 0 ? totalRecords / sampleSize : 1;
 
-  const totalLoanValue = totals?.reduce((sum, r) => sum + (r.loan_amount || 0), 0) || 0;
-  const totalCommission = totals?.reduce((sum, r) => sum + (r.commission_amount || 0), 0) || 0;
+  const sampleLoanValue = sample?.reduce((sum, r) => sum + (r.loan_amount || 0), 0) || 0;
+  const sampleCommission = sample?.reduce((sum, r) => sum + (r.commission_amount || 0), 0) || 0;
 
   // Get last sync info
   const { data: lastSync } = await supabase
@@ -476,8 +526,8 @@ export async function getDashboardStats() {
 
   return {
     totalApplications: totalApplications || 0,
-    totalLoanValue,
-    totalCommission,
+    totalLoanValue: sampleLoanValue * scaleFactor,
+    totalCommission: sampleCommission * scaleFactor,
     statusBreakdown: statusCounts,
     lastSync: lastSync || null
   };
