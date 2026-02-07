@@ -246,32 +246,22 @@ export async function executeSOQL(query: string): Promise<any[]> {
  */
 export async function fetchAllApplicationDecisions(): Promise<any[]> {
   // SOQL query with VERIFIED field names from Salesforce describe API
-  // Note: Keeping query simple to avoid deep relationship traversal issues
+  // Note: SOQL doesn't support /* */ comments, only // or no comments
   const soqlQuery = `
     SELECT
       Id,
       Name,
       CreatedDate,
       Active__c,
-
-      /* Lender info - direct on AD */
       Lender__c,
       Lender__r.Name,
       Lender_Name__c,
-
-      /* Retailer info - direct on AD */
       Retailer__c,
       Retailer__r.Name,
       Retailer__r.Parent.Name,
-
-      /* BDM info - CONFIRMED field name */
       BDM_Name__c,
-
-      /* Waterfall position */
       Priority__c,
       Prime_Sub_Prime__c,
-
-      /* Status dates - VERIFIED field names */
       Accepted_Date__c,
       Referred_Date__c,
       Approved_Declined_Date__c,
@@ -279,16 +269,10 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
       Paid_Out_Date__c,
       Cancelled_Date__c,
       Expired_On__c,
-
-      /* Financial values on AD */
       Loan_Amount__c,
       Purchase_Amount__c,
       Shermin_Commission_Amount__c,
-
-      /* Product info on AD */
       Product_Name__c,
-
-      /* Related Application info */
       Application__c,
       Application__r.Name,
       Application__r.Application_Number__c,
@@ -297,7 +281,6 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
       Application__r.Deferral_Period__c,
       Application__r.Goods_Description__c,
       Application__r.Deposit_Amount__c
-
     FROM Application_Decision__c
     WHERE Active__c = true
     ORDER BY CreatedDate DESC
