@@ -31,11 +31,23 @@ Internal reporting tool for Shermin Finance to visualize and analyze Salesforce 
 6. Middleware reads cookies via `getUser()`, allows access
 
 ### Data Sync
-- **Daily cron job** at 1am syncs Salesforce → Supabase
+- **Daily cron job** at 1am UTC syncs Salesforce → Supabase
 - Route: `/app/api/cron/sync/route.ts`
 - Service: `/lib/sync-service.ts`
 - Salesforce client: `/lib/salesforce.ts`
 - Uses SOQL queries (no 2,000 row limit), falls back to Reports API
+
+**Sync Architecture (supports 180k+ records):**
+1. SOQL query fetches `Application_Decision__c` with automatic pagination via `nextRecordsUrl`
+2. Full refresh strategy: DELETE all existing → INSERT fresh data
+3. Batch inserts of 500 records to Supabase
+4. Sync log tracks success/failure status and record counts
+5. Cron configured in `vercel.json`: `"schedule": "0 1 * * *"` (1am UTC daily)
+
+**Manual Sync:**
+- Dashboard has "Sync Now" button (requires auth)
+- POST `/api/sync` triggers sync
+- GET `/api/sync?action=status` checks last sync status
 
 ### Key Salesforce Fields
 - `BDM_Name__c` - Business Development Manager name
@@ -94,6 +106,25 @@ See `/schema.sql` for full schema. Key tables:
 - `bdm` - Can view their own retailers only
 - `viewer` - Read-only access
 
+### BDM Data Isolation
+BDM users only see data for their assigned retailers. This is enforced at the application layer (not database RLS) for simplicity.
+
+**Architecture:**
+1. `bdm_retailer_assignments` table maps `user_email` → `retailer_name` (many-to-many)
+2. `getAuthContext()` in `/lib/middleware/auth.ts` fetches user profile + assignments
+3. `applyAuthFilters()` in `/lib/report-service.ts` filters queries for BDM users
+4. BDM with no assignments sees no data (intentional safety)
+
+**Assignment Management:**
+- API: POST `/api/admin/bdm-assignments` (admin only)
+- Body: `{ userEmail: string, retailers: string[] }` - replaces all assignments
+
+**Key Files:**
+- `/lib/middleware/auth.ts` - AuthContext creation
+- `/lib/bdm-assignment-service.ts` - Assignment CRUD operations
+- `/lib/report-service.ts` - `applyAuthFilters()` function
+- `/supabase/migrations/20260206_create_bdm_retailer_assignments.sql` - Table definition
+
 ## Working with v0
 This project uses v0.dev for UI design changes. Workflow:
 1. v0 makes design changes → commits to GitHub
@@ -142,6 +173,16 @@ GET `/api/sync?action=status`
 ### Auth: Microsoft SafeLinks consuming tokens
 **Cause**: Corporate email security scans links before delivery, consuming one-time tokens
 **Fix**: Tokens in hash fragments survive SafeLinks; ensure callback reads from `window.location.hash`
+
+## Known Issues / Technical Debt
+
+### User Tables Inconsistency (P2)
+The admin UI and auth middleware use different tables:
+- **Admin routes** (`/api/admin/users/*`): Query a `users` table with single `retailer` field
+- **Auth middleware** (`/lib/middleware/auth.ts`): Query `profiles` table + `bdm_retailer_assignments`
+
+**Impact:** Single retailer in admin UI vs multi-retailer in auth system
+**Future Fix:** Unify on `profiles` table + `bdm_retailer_assignments` for multi-retailer support
 
 ## Notes
 - UK locale throughout (dates, currency)
