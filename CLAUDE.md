@@ -52,18 +52,29 @@ Internal reporting tool for Shermin Finance to visualize and analyze Salesforce 
 ### Key Salesforce Fields
 Primary object: `Application_Decision__c`
 
-**IMPORTANT FIELD NOTES (discovered 2026-02-07):**
-- `BDM_Name__c` does NOT exist directly on Application_Decision__c
-- BDM data comes from: `Application__r.BDM__r.Name` (via Application relationship)
-- The Reports API returns BDM as `'BDM Name'` column (human-readable label)
-- `Shermin_Commission_Amount__c` - Commission amount (direct on AD)
-- `Lender_Name__c` or `Lender__r.Name` - Lender info
-- Use `/api/salesforce/describe` endpoint to discover correct field names
+**VERIFIED FIELD PATHS (MCP tested 2026-02-07):**
 
-**SOQL vs Reports API:**
-- SOQL: Uses API field names (e.g., `Lender__r.Name`, `Application__r.BDM__c`)
-- Reports API: Uses report column labels (e.g., `'BDM Name'`, `'Lender Name'`)
-- Reports API is limited to 2,000 rows; SOQL has no limit (uses pagination)
+Data Model:
+```
+Application_Decision__c → Application__c → Opportunity (commission, finance product)
+Application_Decision__c → Retailer__c (Account) → Owner (BDM name)
+```
+
+**SOQL Field Paths:**
+- `Retailer__r.Owner.Name` - BDM (Account Owner is the BDM!)
+- `Application__r.Opportunity__r.Shermin_Commission_Amount__c` - Commission
+- `Application__r.Opportunity__r.Finance_Product2__c` - Finance Product
+- `Loan_Amount__c` - Direct on AD
+- `Lender_Name__c` or `Lender__r.Name` - Lender info
+
+**Fields that DO NOT exist on Application_Decision__c:**
+- `BDM_Name__c` - Use `Retailer__r.Owner.Name`
+- `Shermin_Commission_Amount__c` - Use `Application__r.Opportunity__r.Shermin_Commission_Amount__c`
+
+**Reports API Field Names:**
+Returns fully-qualified names: `Application_Decision__c.Name`, `Account.Owner.Name`, `Opportunity.Shermin_Commission_Amount__c`
+
+**Debugging:** Use `/api/salesforce/describe` to discover field names
 
 ## Important Files
 
