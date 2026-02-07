@@ -1,12 +1,14 @@
 /**
- * Auth Middleware for BDM Data Isolation
+ * Auth Middleware for User Data Isolation
  *
- * This middleware provides role-based access control and BDM retailer assignment lookup.
- * It's designed to be used in API routes to:
- * 1. Verify user authentication
- * 2. Fetch user profile with role information
- * 3. If BDM: Look up assigned retailers
- * 4. Return a context object for use in data filtering
+ * This middleware provides role-based access control and BDM name assignment lookup.
+ * Users can be assigned specific BDM names to filter what data they see.
+ *
+ * Access levels:
+ * - global_admin/admin: See ALL data (no filtering)
+ * - Users with "ALL" BDM assignment: See all data (e.g., Tony Lilley)
+ * - Users with specific BDM names: See only data for those BDMs (e.g., Kathryn Wilson)
+ * - Users with no assignments: See NO data
  */
 
 import { createClient } from '@/lib/supabase/server';
@@ -16,9 +18,12 @@ export interface AuthContext {
   userId: string;
   userEmail: string;
   role: 'global_admin' | 'admin' | 'bdm' | 'viewer';
-  assignedRetailers: string[];
+  assignedBdmNames: string[];  // BDM names this user can see
+  hasFullAccess: boolean;      // True if admin OR has "ALL" assignment
   isAdmin: boolean;
   isBdm: boolean;
+  // Legacy field for backward compatibility
+  assignedRetailers: string[];
 }
 
 /**
@@ -55,20 +60,26 @@ export async function getAuthContext(): Promise<AuthContext> {
   const isAdmin = role === 'global_admin' || role === 'admin';
   const isBdm = role === 'bdm';
 
-  let assignedRetailers: string[] = [];
+  let assignedBdmNames: string[] = [];
+  let hasFullAccess = isAdmin; // Admins always have full access
 
-  // If BDM, fetch their assigned retailers
-  if (isBdm) {
+  // Fetch BDM assignments for non-admin users
+  if (!isAdmin) {
     const { data: assignments, error: assignError } = await supabase
-      .from('bdm_retailer_assignments')
-      .select('retailer_name')
+      .from('user_bdm_assignments')
+      .select('bdm_name')
       .eq('user_email', user.email);
 
     if (assignError) {
-      console.error('Failed to fetch BDM retailer assignments:', assignError);
-      // Don't throw - BDM with no assignments just gets empty list
+      console.error('Failed to fetch user BDM assignments:', assignError);
+      // Don't throw - user with no assignments just gets empty list
     } else {
-      assignedRetailers = (assignments || []).map(a => a.retailer_name).filter(Boolean);
+      assignedBdmNames = (assignments || []).map(a => a.bdm_name).filter(Boolean);
+
+      // Check if user has "ALL" assignment
+      if (assignedBdmNames.includes('ALL')) {
+        hasFullAccess = true;
+      }
     }
   }
 
@@ -76,40 +87,59 @@ export async function getAuthContext(): Promise<AuthContext> {
     userId: user.id,
     userEmail: user.email || '',
     role,
-    assignedRetailers,
+    assignedBdmNames,
+    hasFullAccess,
     isAdmin,
-    isBdm
+    isBdm,
+    // Legacy compatibility - empty for now as we filter by BDM name
+    assignedRetailers: []
   };
 }
 
 /**
- * Helper to check if a retailer is accessible to the current user
- * Admins can access all retailers, BDMs can only access assigned ones
+ * Helper to check if a BDM's data is accessible to the current user
+ */
+export function isBdmAccessible(
+  bdmName: string | null,
+  authContext: AuthContext
+): boolean {
+  if (!bdmName) return false;
+  if (authContext.hasFullAccess) return true;
+  return authContext.assignedBdmNames.includes(bdmName);
+}
+
+/**
+ * Get BDM name filter for queries
+ * Returns null if user has full access (no filtering needed)
+ * Returns array of BDM names to filter by otherwise
+ */
+export function getBdmFilterForUser(authContext: AuthContext): string[] | null {
+  if (authContext.hasFullAccess) {
+    return null; // No filtering for admins or users with "ALL" access
+  }
+
+  // Return assigned BDM names (may be empty, which means no data)
+  return authContext.assignedBdmNames;
+}
+
+// ============================================
+// LEGACY COMPATIBILITY
+// ============================================
+
+/**
+ * @deprecated Use isBdmAccessible instead
  */
 export function isRetailerAccessible(
   retailer: string | null,
   authContext: AuthContext
 ): boolean {
-  if (!retailer) return false;
-  if (authContext.isAdmin) return true;
-  if (authContext.isBdm) {
-    return authContext.assignedRetailers.includes(retailer);
-  }
-  return false;
+  // For backward compatibility, check BDM names
+  return isBdmAccessible(retailer, authContext);
 }
 
 /**
- * Get retailer filter clause for BDM users
- * Returns null for admins (no filtering needed)
- * Returns array of retailers for BDM users
+ * @deprecated Use getBdmFilterForUser instead
  */
 export function getRetailerFilterForUser(authContext: AuthContext): string[] | null {
-  if (authContext.isAdmin) {
-    return null; // No filtering for admins
-  }
-  if (authContext.isBdm && authContext.assignedRetailers.length > 0) {
-    return authContext.assignedRetailers;
-  }
-  // BDM with no assignments returns empty list (will return no data)
-  return authContext.assignedRetailers;
+  return getBdmFilterForUser(authContext);
 }

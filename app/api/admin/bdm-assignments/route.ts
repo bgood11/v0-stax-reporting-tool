@@ -1,8 +1,14 @@
 /**
- * BDM Retailer Assignments API Route
+ * User BDM Assignments API Route
  *
- * GET - List all BDM assignments
- * POST - Assign a retailer to a BDM (bulk upsert)
+ * GET - List all user assignments or get available BDM names
+ *   ?action=available - Get list of BDM names from data (for UI dropdown)
+ *   ?userEmail=xxx - Get assignments for specific user
+ *   (no params) - Get all user assignments
+ *
+ * POST - Assign BDM names to a user (bulk replace)
+ *   Body: { userEmail: string, bdmNames: string[] }
+ *   Use bdmNames: ["ALL"] for full access
  *
  * SECURITY: Admin only
  */
@@ -11,9 +17,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getAuthContext } from '@/lib/middleware/auth';
 import {
-  getAllBdmAssignments,
-  replaceBdmAssignments,
-  getBdmAssignments
+  getAllUserBdmAssignments,
+  replaceUserBdmAssignments,
+  getUserBdmAssignments,
+  getAvailableBdmNames
 } from '@/lib/bdm-assignment-service';
 
 export async function GET(request: NextRequest) {
@@ -41,17 +48,29 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Optional: filter by specific user email
+    const action = request.nextUrl.searchParams.get('action');
     const userEmail = request.nextUrl.searchParams.get('userEmail');
 
+    // Get available BDM names for the dropdown
+    if (action === 'available') {
+      const bdmNames = await getAvailableBdmNames();
+      return NextResponse.json({
+        bdmNames: ['ALL', ...bdmNames], // "ALL" option for full access
+        count: bdmNames.length
+      });
+    }
+
+    // Get assignments for specific user
     if (userEmail) {
-      const assignments = await getBdmAssignments(userEmail);
-      return NextResponse.json({ userEmail, assignments });
+      const assignments = await getUserBdmAssignments(userEmail);
+      const bdmNames = assignments.map(a => a.bdm_name);
+      return NextResponse.json({ userEmail, bdmNames, assignments });
     }
 
     // Get all assignments
-    const allAssignments = await getAllBdmAssignments();
+    const allAssignments = await getAllUserBdmAssignments();
     return NextResponse.json(allAssignments);
+
   } catch (error: any) {
     console.error('Failed to get BDM assignments:', error);
     return NextResponse.json(
@@ -96,23 +115,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!Array.isArray(body.retailers)) {
+    // Accept both 'bdmNames' (new) and 'retailers' (legacy) for backward compatibility
+    const bdmNames = body.bdmNames || body.retailers;
+
+    if (!Array.isArray(bdmNames)) {
       return NextResponse.json(
-        { error: 'retailers must be an array' },
+        { error: 'bdmNames must be an array' },
         { status: 400 }
       );
     }
 
-    // Validate each retailer name
-    if (!body.retailers.every((r: any) => typeof r === 'string')) {
+    // Validate each BDM name
+    if (!bdmNames.every((b: any) => typeof b === 'string')) {
       return NextResponse.json(
-        { error: 'All retailer names must be strings' },
+        { error: 'All BDM names must be strings' },
         { status: 400 }
       );
     }
 
     // Replace assignments
-    const result = await replaceBdmAssignments(body.userEmail, body.retailers);
+    const result = await replaceUserBdmAssignments(body.userEmail, bdmNames);
 
     if (!result.success) {
       return NextResponse.json(
@@ -124,9 +146,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       userEmail: body.userEmail,
-      retailers: body.retailers,
-      message: `Updated assignments for ${body.userEmail}`
+      bdmNames: bdmNames,
+      message: `Updated BDM assignments for ${body.userEmail}`
     });
+
   } catch (error: any) {
     console.error('Failed to update BDM assignments:', error);
     return NextResponse.json(

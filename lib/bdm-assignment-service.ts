@@ -1,8 +1,14 @@
 /**
- * BDM Retailer Assignment Service
+ * User BDM Assignment Service
  *
- * Manages the assignment of retailers to BDM users for row-level security.
- * Only accessible to admin users.
+ * Manages the assignment of BDM names to users for row-level security.
+ * Users can only see application data where bdm_name matches their assignments.
+ *
+ * Key concepts:
+ * - Admins: see ALL data (no filtering)
+ * - Users with "ALL" assignment: see all data (like Tony Lilley)
+ * - Users with specific BDM names: see only that BDM's data (like Kathryn Wilson)
+ * - Users with no assignments: see NO data
  */
 
 import { createAdminClient } from './supabase/server';
@@ -10,24 +16,24 @@ import { createAdminClient } from './supabase/server';
 export interface BdmAssignment {
   id: string;
   user_email: string;
-  retailer_name: string;
+  bdm_name: string;
   assigned_at: string;
 }
 
 /**
- * Get all retailers assigned to a BDM user
+ * Get all BDM names assigned to a user
  */
-export async function getBdmAssignments(userEmail: string): Promise<BdmAssignment[]> {
+export async function getUserBdmAssignments(userEmail: string): Promise<BdmAssignment[]> {
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
-    .from('bdm_retailer_assignments')
+    .from('user_bdm_assignments')
     .select('*')
     .eq('user_email', userEmail)
     .order('assigned_at', { ascending: false });
 
   if (error) {
-    console.error('Failed to fetch BDM assignments:', error);
+    console.error('Failed to fetch user BDM assignments:', error);
     return [];
   }
 
@@ -35,19 +41,19 @@ export async function getBdmAssignments(userEmail: string): Promise<BdmAssignmen
 }
 
 /**
- * Get all BDMs and their retailer assignments
- * Returns a map of user_email -> array of retailer_names
+ * Get all users and their BDM assignments
+ * Returns a map of user_email -> array of bdm_names
  */
-export async function getAllBdmAssignments(): Promise<Record<string, string[]>> {
+export async function getAllUserBdmAssignments(): Promise<Record<string, string[]>> {
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
-    .from('bdm_retailer_assignments')
+    .from('user_bdm_assignments')
     .select('*')
     .order('user_email, assigned_at');
 
   if (error) {
-    console.error('Failed to fetch all BDM assignments:', error);
+    console.error('Failed to fetch all user BDM assignments:', error);
     return {};
   }
 
@@ -56,27 +62,55 @@ export async function getAllBdmAssignments(): Promise<Record<string, string[]>> 
     if (!result[assignment.user_email]) {
       result[assignment.user_email] = [];
     }
-    result[assignment.user_email].push(assignment.retailer_name);
+    result[assignment.user_email].push(assignment.bdm_name);
   }
 
   return result;
 }
 
 /**
- * Assign a retailer to a BDM user
+ * Get distinct BDM names from application_decisions
+ * These are the BDM names that can be assigned to users
+ */
+export async function getAvailableBdmNames(): Promise<string[]> {
+  const supabase = createAdminClient();
+
+  const { data, error } = await supabase
+    .from('application_decisions')
+    .select('bdm_name')
+    .not('bdm_name', 'is', null)
+    .order('bdm_name');
+
+  if (error) {
+    console.error('Failed to fetch available BDM names:', error);
+    return [];
+  }
+
+  // Extract unique, non-empty BDM names
+  const uniqueBdms = [...new Set(
+    (data || [])
+      .map(d => d.bdm_name)
+      .filter(Boolean)
+  )];
+
+  return uniqueBdms;
+}
+
+/**
+ * Assign a BDM name to a user
  * If already assigned, this is a no-op (due to UNIQUE constraint)
  */
-export async function assignRetailerToBdm(
+export async function assignBdmToUser(
   userEmail: string,
-  retailerName: string
+  bdmName: string
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = createAdminClient();
 
   const { error } = await supabase
-    .from('bdm_retailer_assignments')
+    .from('user_bdm_assignments')
     .insert({
       user_email: userEmail,
-      retailer_name: retailerName
+      bdm_name: bdmName
     });
 
   if (error) {
@@ -84,7 +118,7 @@ export async function assignRetailerToBdm(
     if (error.code === '23505') {
       return { success: true }; // Already assigned, treat as success
     }
-    console.error('Failed to assign retailer to BDM:', error);
+    console.error('Failed to assign BDM to user:', error);
     return { success: false, error: error.message };
   }
 
@@ -92,22 +126,22 @@ export async function assignRetailerToBdm(
 }
 
 /**
- * Unassign a retailer from a BDM user
+ * Unassign a BDM name from a user
  */
-export async function unassignRetailerFromBdm(
+export async function unassignBdmFromUser(
   userEmail: string,
-  retailerName: string
+  bdmName: string
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = createAdminClient();
 
   const { error } = await supabase
-    .from('bdm_retailer_assignments')
+    .from('user_bdm_assignments')
     .delete()
     .eq('user_email', userEmail)
-    .eq('retailer_name', retailerName);
+    .eq('bdm_name', bdmName);
 
   if (error) {
-    console.error('Failed to unassign retailer from BDM:', error);
+    console.error('Failed to unassign BDM from user:', error);
     return { success: false, error: error.message };
   }
 
@@ -115,18 +149,21 @@ export async function unassignRetailerFromBdm(
 }
 
 /**
- * Bulk assign retailers to a BDM user
+ * Bulk assign BDM names to a user
  * Replaces all existing assignments for that user
+ *
+ * @param userEmail - User's email address
+ * @param bdmNames - Array of BDM names to assign. Use ["ALL"] for full access.
  */
-export async function replaceBdmAssignments(
+export async function replaceUserBdmAssignments(
   userEmail: string,
-  retailerNames: string[]
+  bdmNames: string[]
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = createAdminClient();
 
   // Delete existing assignments
   const { error: deleteError } = await supabase
-    .from('bdm_retailer_assignments')
+    .from('user_bdm_assignments')
     .delete()
     .eq('user_email', userEmail);
 
@@ -136,17 +173,17 @@ export async function replaceBdmAssignments(
   }
 
   // Insert new assignments
-  if (retailerNames.length === 0) {
-    return { success: true }; // No retailers to assign
+  if (bdmNames.length === 0) {
+    return { success: true }; // No BDMs to assign
   }
 
-  const assignments = retailerNames.map(retailer => ({
+  const assignments = bdmNames.map(bdm => ({
     user_email: userEmail,
-    retailer_name: retailer
+    bdm_name: bdm
   }));
 
   const { error: insertError } = await supabase
-    .from('bdm_retailer_assignments')
+    .from('user_bdm_assignments')
     .insert(assignments);
 
   if (insertError) {
@@ -158,22 +195,30 @@ export async function replaceBdmAssignments(
 }
 
 /**
- * Get all unique retailer names that have assignments
- * Useful for checking which retailers have BDM access
+ * Check if user has "ALL" assignment (full access)
  */
-export async function getAssignedRetailers(): Promise<string[]> {
+export async function hasFullAccess(userEmail: string): Promise<boolean> {
   const supabase = createAdminClient();
 
   const { data, error } = await supabase
-    .from('bdm_retailer_assignments')
-    .select('retailer_name')
-    .order('retailer_name');
+    .from('user_bdm_assignments')
+    .select('id')
+    .eq('user_email', userEmail)
+    .eq('bdm_name', 'ALL')
+    .single();
 
   if (error) {
-    console.error('Failed to fetch assigned retailers:', error);
-    return [];
+    return false;
   }
 
-  // Extract unique retailer names
-  return [...new Set((data || []).map(a => a.retailer_name))];
+  return !!data;
 }
+
+// ============================================
+// BACKWARD COMPATIBILITY EXPORTS
+// ============================================
+// These maintain compatibility with existing code during migration
+
+export const getBdmAssignments = getUserBdmAssignments;
+export const getAllBdmAssignments = getAllUserBdmAssignments;
+export const replaceBdmAssignments = replaceUserBdmAssignments;

@@ -115,20 +115,25 @@ export async function generateReport(
 }
 
 /**
- * Apply auth-based filters (BDM retailer assignments, etc)
- * This ensures BDM users only see data from their assigned retailers
+ * Apply auth-based filters (BDM name assignments)
+ * This ensures users only see data from their assigned BDM names
+ *
+ * - Admins: see all data
+ * - Users with "ALL" assignment: see all data
+ * - Users with specific BDM names: see only that data
+ * - Users with no assignments: see no data
  */
 function applyAuthFilters(query: any, authContext: AuthContext): any {
-  // If user is admin, no filtering needed
-  if (authContext.isAdmin) {
+  // If user has full access (admin or "ALL" assignment), no filtering needed
+  if (authContext.hasFullAccess) {
     return query;
   }
 
-  // If user is BDM, filter to assigned retailers
-  if (authContext.isBdm && authContext.assignedRetailers.length > 0) {
-    query = query.in('retailer_name', authContext.assignedRetailers);
-  } else if (authContext.isBdm && authContext.assignedRetailers.length === 0) {
-    // BDM with no assignments gets no data
+  // Filter to assigned BDM names
+  if (authContext.assignedBdmNames.length > 0) {
+    query = query.in('bdm_name', authContext.assignedBdmNames);
+  } else {
+    // No assignments = no data
     // Use a filter that returns no results
     query = query.eq('id', 'null-no-access');
   }

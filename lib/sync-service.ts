@@ -217,13 +217,13 @@ export async function getSyncedData(limit?: number, authContext?: AuthContext) {
 
   // Apply BDM filtering if authContext provided
   if (authContext) {
-    if (authContext.isAdmin) {
-      // Admins see all data - no filtering
-    } else if (authContext.isBdm && authContext.assignedRetailers.length > 0) {
-      // BDMs only see their assigned retailers
-      query = query.in('retailer_name', authContext.assignedRetailers);
-    } else if (authContext.isBdm) {
-      // BDM with no assignments gets no data
+    if (authContext.hasFullAccess) {
+      // Admins or users with "ALL" assignment see all data - no filtering
+    } else if (authContext.assignedBdmNames.length > 0) {
+      // Users only see data for their assigned BDM names
+      query = query.in('bdm_name', authContext.assignedBdmNames);
+    } else {
+      // No assignments = no data
       query = query.eq('id', 'null-no-access');
     }
   }

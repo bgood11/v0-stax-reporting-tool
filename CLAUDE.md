@@ -103,27 +103,36 @@ See `/schema.sql` for full schema. Key tables:
 ## User Roles
 - `global_admin` - Full access, can delete users
 - `admin` - Can manage users and settings
-- `bdm` - Can view their own retailers only
-- `viewer` - Read-only access
+- `bdm` - Can view data for assigned BDM names only
+- `viewer` - Read-only access (with assigned BDM names)
 
-### BDM Data Isolation
-BDM users only see data for their assigned retailers. This is enforced at the application layer (not database RLS) for simplicity.
+### User Data Isolation (BDM Name Filtering)
+Users see data filtered by their assigned BDM names from `application_decisions.bdm_name`.
+
+**Access Levels:**
+- `global_admin` / `admin`: See ALL data (no filtering)
+- Users with `ALL` assignment: See all data (e.g., Tony Lilley - commercial director)
+- Users with specific BDM names: See only that BDM's data (e.g., Kathryn Wilson sees only her own applications)
+- Users with no assignments: See NO data (safety default)
 
 **Architecture:**
-1. `bdm_retailer_assignments` table maps `user_email` → `retailer_name` (many-to-many)
-2. `getAuthContext()` in `/lib/middleware/auth.ts` fetches user profile + assignments
-3. `applyAuthFilters()` in `/lib/report-service.ts` filters queries for BDM users
-4. BDM with no assignments sees no data (intentional safety)
+1. `user_bdm_assignments` table maps `user_email` → `bdm_name` (many-to-many)
+2. BDM names come from synced Salesforce data (`application_decisions.bdm_name`)
+3. `getAuthContext()` fetches user profile + assigned BDM names
+4. `applyAuthFilters()` filters queries by `bdm_name` field
 
 **Assignment Management:**
-- API: POST `/api/admin/bdm-assignments` (admin only)
-- Body: `{ userEmail: string, retailers: string[] }` - replaces all assignments
+- GET `/api/admin/bdm-assignments?action=available` - Get list of BDM names from data
+- GET `/api/admin/bdm-assignments?userEmail=xxx` - Get assignments for user
+- POST `/api/admin/bdm-assignments` - Replace user's assignments
+  - Body: `{ userEmail: string, bdmNames: string[] }`
+  - Use `bdmNames: ["ALL"]` for full access
 
 **Key Files:**
-- `/lib/middleware/auth.ts` - AuthContext creation
-- `/lib/bdm-assignment-service.ts` - Assignment CRUD operations
-- `/lib/report-service.ts` - `applyAuthFilters()` function
-- `/supabase/migrations/20260206_create_bdm_retailer_assignments.sql` - Table definition
+- `/lib/middleware/auth.ts` - AuthContext with `assignedBdmNames` and `hasFullAccess`
+- `/lib/bdm-assignment-service.ts` - Assignment CRUD + `getAvailableBdmNames()`
+- `/lib/report-service.ts` - `applyAuthFilters()` filters by `bdm_name`
+- `/supabase/migrations/20260206_create_bdm_retailer_assignments.sql` - Creates `user_bdm_assignments` table
 
 ## Working with v0
 This project uses v0.dev for UI design changes. Workflow:
