@@ -147,41 +147,41 @@ export function parseDate(dateStr: string | null): string | null {
 
 /**
  * Generate a deterministic ID from record fields for Reports API fallback
- * This ensures we have a unique ID even when the report doesn't include one
+ * Reports API returns field names like: Application_Decision__c.Name, Account.Owner.Name, etc.
  */
 function generateSyntheticId(raw: any): string {
-  // Try to find any ID-like field first
-  const possibleIdFields = [
-    'Application Decision Name', 'AD Name', 'Decision Name', 'Record ID',
-    'Application Decision: Application Decision Name', 'Id', 'ID',
-    'AD_Name__c', 'Name', 'Application Decision ID'
+  // Try exact Reports API field names first (from actual API response)
+  const exactFields = [
+    'Application_Decision__c.Name',  // Exact Reports API field name
+    'Application Decision Name',
+    'AD Name',
+    'Name',
+    'Id',
+    'ID'
   ];
 
-  for (const field of possibleIdFields) {
+  for (const field of exactFields) {
     if (raw[field]) return String(raw[field]);
   }
 
-  // Check all keys for any that contain 'Name' or 'ID' (case-insensitive)
+  // Check all keys for any that contain 'Decision' and 'Name'
   for (const key of Object.keys(raw)) {
     const lowerKey = key.toLowerCase();
     if ((lowerKey.includes('decision') && lowerKey.includes('name')) ||
-        (lowerKey.includes('ad') && lowerKey.includes('name')) ||
-        lowerKey === 'id' || lowerKey === 'name') {
+        (lowerKey.includes('.name') && lowerKey.includes('decision'))) {
       if (raw[key]) return String(raw[key]);
     }
   }
 
   // Generate synthetic ID from available data
-  const appNum = raw['Application Number'] || raw['AP_Number__c'] || '';
-  const lender = raw['Lender Name'] || raw['Lender__c'] || '';
-  const created = raw['Created Date'] || raw['CreatedDate'] || '';
-  const priority = raw['Priority'] || raw['Priority__c'] || '0';
+  const appNum = raw['Application__c.Name'] || raw['Application Number'] || '';
+  const lender = raw['Application_Decision__c.Lender_Name__c'] || raw['Lender Name'] || '';
+  const priority = raw['Application_Decision__c.Priority__c'] || raw['Priority'] || '0';
 
-  if (appNum && lender) {
+  if (appNum || lender) {
     return `AD-${appNum}-${lender}-${priority}`.replace(/[^a-zA-Z0-9-]/g, '_');
   }
 
-  // Last resort: use index-based ID (will be set by caller)
   return '';
 }
 
@@ -194,32 +194,34 @@ export function transformRecord(raw: any, index?: number): any {
     id = `REPORT-${Date.now()}-${index}`;
   }
 
+  // Map using BOTH human-readable names AND exact Reports API field names
+  // Reports API returns: Application_Decision__c.Name, Account.Owner.Name, etc.
   const record = {
     id: id || `UNKNOWN-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    ap_number: raw['Application Number'] || raw['AP_Number__c'] || null,
-    lender_name: raw['Lender Name'] || raw['Lender__c'] || null,
-    bdm_name: raw['BDM Name'] || raw['BDM__c'] || raw['BDM'] || null,
-    prime_subprime: raw['Prime/Sub-Prime'] || raw['Prime_SubPrime__c'] || null,
-    priority: parseInt(raw['Priority'] || raw['Priority__c'] || '0') || 0,
-    parent_company: raw['Parent Company: Company Name'] || raw['Parent_Company__c'] || null,
-    retailer_name: raw['Retailer Name'] || raw['Retailer__c'] || null,
-    created_date: parseDate(raw['Created Date'] || raw['CreatedDate']),
-    approved_date: parseDate(raw['Approved Date'] || raw['Approved_Date__c'] || raw['Accepted_Date__c']),
-    referred_date: parseDate(raw['Referred Date'] || raw['Referred_Date__c']),
-    rejected_date: parseDate(raw['Rejected Date'] || raw['Rejected_Date__c']),
-    contract_signed_date: parseDate(raw['Contract Signed Date'] || raw['Contract_Signed_Date__c']),
-    live_date: parseDate(raw['Live Date'] || raw['Live_Date__c']),
-    cancelled_date: parseDate(raw['Cancelled Date'] || raw['Cancelled_Date__c']),
-    expired_date: parseDate(raw['Expired On'] || raw['Expired_Date__c']),
-    purchase_amount: parseFloat(raw['Purchase Amount'] || raw['Purchase_Amount__c'] || '0') || 0,
-    deposit_amount: parseFloat(raw['Deposit Amount'] || raw['Deposit_Amount__c'] || '0') || 0,
-    loan_amount: parseFloat(raw['Loan Amount'] || raw['Loan_Amount__c'] || '0') || 0,
-    commission_amount: parseFloat(raw['Shermin Commission Amount'] || raw['Commission__c'] || raw['Shermin_Commission__c'] || '0') || 0,
-    goods_description: raw['Goods Description'] || raw['Goods_Description__c'] || null,
-    terms_month: parseInt(raw['Terms Month'] || raw['Terms__c'] || raw['Term_Months__c'] || '0') || 0,
-    apr: parseFloat(raw['APR'] || raw['APR__c'] || '0') || 0,
-    finance_product: raw['Finance Product'] || raw['Finance_Product__c'] || null,
-    deferral_period: parseInt(raw['Deferral Period'] || raw['Deferral_Period__c'] || '0') || 0,
+    ap_number: raw['Application__c.Name'] || raw['Application Number'] || null,
+    lender_name: raw['Application_Decision__c.Lender_Name__c'] || raw['Lender Name'] || null,
+    bdm_name: raw['Account.Owner.Name'] || raw['BDM Name'] || null,  // BDM is Account Owner!
+    prime_subprime: raw['Application_Decision__c.Prime_Sub_Prime__c'] || raw['Prime/Sub-Prime'] || null,
+    priority: parseInt(raw['Application_Decision__c.Priority__c'] || raw['Priority'] || '0') || 0,
+    parent_company: raw['Account.Parent.Name'] || raw['Parent Company: Company Name'] || null,
+    retailer_name: raw['Account.Name'] || raw['Retailer Name'] || null,
+    created_date: parseDate(raw['Application_Decision__c.CreatedDate'] || raw['Created Date']),
+    approved_date: parseDate(raw['Application_Decision__c.Accepted_Date__c'] || raw['Approved Date'] || raw['Accepted Date']),
+    referred_date: parseDate(raw['Application_Decision__c.Referred_Date__c'] || raw['Referred Date']),
+    rejected_date: parseDate(raw['Application_Decision__c.Approved_Declined_Date__c'] || raw['Rejected Date']),
+    contract_signed_date: parseDate(raw['Application_Decision__c.Contract_Signed_Date__c'] || raw['Contract Signed Date']),
+    live_date: parseDate(raw['Application_Decision__c.Paid_Out_Date__c'] || raw['Live Date'] || raw['Paid Out Date']),
+    cancelled_date: parseDate(raw['Application_Decision__c.Cancelled_Date__c'] || raw['Cancelled Date']),
+    expired_date: parseDate(raw['Application_Decision__c.Expired_On__c'] || raw['Expired On']),
+    purchase_amount: parseFloat(raw['Application_Decision__c.Purchase_Amount__c'] || raw['Purchase Amount'] || '0') || 0,
+    deposit_amount: parseFloat(raw['Application__c.Deposit_Amount__c'] || raw['Deposit Amount'] || '0') || 0,
+    loan_amount: parseFloat(raw['Opportunity.Loan_Amount__c'] || raw['Loan Amount'] || '0') || 0,
+    commission_amount: parseFloat(raw['Opportunity.Shermin_Commission_Amount__c'] || raw['Shermin Commission Amount'] || '0') || 0,
+    goods_description: raw['Application__c.Goods_Description__c'] || raw['Goods Description'] || null,
+    terms_month: parseInt(raw['Application__c.Terms_Month__c'] || raw['Terms Month'] || '0') || 0,
+    apr: parseFloat(raw['Application__c.APR__c'] || raw['APR'] || '0') || 0,
+    finance_product: raw['Opportunity.Finance_Product2__c'] || raw['Finance Product'] || null,
+    deferral_period: parseInt(raw['Application__c.Deferral_Period__c'] || raw['Deferral Period'] || '0') || 0,
     derived_status: ''
   };
 
@@ -293,9 +295,11 @@ export async function executeSOQL(query: string): Promise<any[]> {
  * - Related objects: Lender (Account), Application__c, Opportunity, Retailer Account
  */
 export async function fetchAllApplicationDecisions(): Promise<any[]> {
-  // SOQL query - BDM field removed as BDM_Name__c doesn't exist on Application_Decision__c
-  // BDM data comes from the Reports API which has access to calculated/formula fields
-  // Using only verified fields that exist directly on the object
+  // SOQL query with VERIFIED field paths (tested via MCP 2026-02-07)
+  // Key discoveries:
+  // - BDM is Retailer__r.Owner.Name (Account Owner)
+  // - Commission is on Opportunity: Application__r.Opportunity__r.Shermin_Commission_Amount__c
+  // - Loan_Amount__c exists on both AD and Opportunity
   const soqlQuery = `
     SELECT
       Id,
@@ -308,6 +312,7 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
       Retailer__c,
       Retailer__r.Name,
       Retailer__r.Parent.Name,
+      Retailer__r.Owner.Name,
       Priority__c,
       Prime_Sub_Prime__c,
       Accepted_Date__c,
@@ -319,7 +324,6 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
       Expired_On__c,
       Loan_Amount__c,
       Purchase_Amount__c,
-      Shermin_Commission_Amount__c,
       Product_Name__c,
       Application__c,
       Application__r.Name,
@@ -329,8 +333,8 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
       Application__r.Deferral_Period__c,
       Application__r.Goods_Description__c,
       Application__r.Deposit_Amount__c,
-      Application__r.BDM__c,
-      Application__r.BDM__r.Name
+      Application__r.Opportunity__r.Shermin_Commission_Amount__c,
+      Application__r.Opportunity__r.Finance_Product2__c
     FROM Application_Decision__c
     WHERE Active__c = true
     ORDER BY CreatedDate DESC
@@ -358,8 +362,8 @@ export async function fetchAllApplicationDecisions(): Promise<any[]> {
  * Transform SOQL record (flattened from nested structure) to our internal format
  */
 export function transformSOQLRecord(raw: any): any {
-  // Handle nested relationship fields from SOQL - VERIFIED field paths
-  // Lender: direct on AD
+  // Handle nested relationship fields from SOQL - VERIFIED field paths (MCP tested 2026-02-07)
+  // Lender: direct on AD or via relationship
   const lenderName = raw.Lender__r?.Name || raw.Lender_Name__c || raw.Lender__c || '';
 
   // Retailer: direct on AD via Retailer__r
@@ -369,12 +373,14 @@ export function transformSOQLRecord(raw: any): any {
   // Application Number: from Application__r
   const appNumber = raw.Application__r?.Application_Number__c || raw.Application__r?.Name || '';
 
-  // BDM: Try multiple paths - from Application relationship or direct
-  // BDM_Name__c doesn't exist directly on AD, so get from Application__r
-  const bdmName = raw.Application__r?.BDM__r?.Name || raw.Application__r?.BDM__c || raw.BDM_Name__c || '';
+  // BDM: Account Owner is the BDM (Retailer__r.Owner.Name)
+  const bdmName = raw.Retailer__r?.Owner?.Name || '';
 
-  // Commission: Direct field on Application_Decision__c
-  const commissionAmount = parseFloat(raw.Shermin_Commission_Amount__c || '0') || 0;
+  // Commission: On Opportunity via Application__r.Opportunity__r
+  const commissionAmount = parseFloat(raw.Application__r?.Opportunity__r?.Shermin_Commission_Amount__c || '0') || 0;
+
+  // Finance Product: On Opportunity
+  const financeProduct = raw.Application__r?.Opportunity__r?.Finance_Product2__c || raw.Product_Name__c || '';
 
   // Fields from Application__r
   const apr = raw.Application__r?.APR__c || 0;
@@ -407,7 +413,7 @@ export function transformSOQLRecord(raw: any): any {
     goods_description: goodsDescription,
     terms_month: parseInt(termsMonth || '0') || 0,
     apr: parseFloat(apr || '0') || 0,
-    finance_product: raw.Product_Name__c || '',
+    finance_product: financeProduct,
     deferral_period: parseInt(deferralPeriod || '0') || 0,
     derived_status: ''
   };
