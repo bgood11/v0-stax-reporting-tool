@@ -18,9 +18,9 @@ export async function PATCH(
 
     // Check if user is admin
     const { data: currentUser } = await supabase
-      .from('users')
+      .from('profiles')
       .select('role')
-      .eq('auth_id', user.id)
+      .eq('id', user.id)
       .single();
 
     if (!currentUser || (currentUser.role !== 'global_admin' && currentUser.role !== 'admin')) {
@@ -28,21 +28,20 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const { name, role, retailer, status } = body;
+    const { name, role } = body;
 
-    // Build update object
+    // Build update object - only fields that exist in profiles table
     const updates: Record<string, unknown> = {};
     if (name !== undefined) updates.name = name;
     if (role !== undefined) updates.role = role;
-    if (retailer !== undefined) updates.retailer = retailer === 'All' ? null : retailer;
-    if (status !== undefined) updates.status = status;
+    updates.updated_at = new Date().toISOString();
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'No updates provided' }, { status: 400 });
     }
 
     const { data: updatedUser, error } = await adminClient
-      .from('users')
+      .from('profiles')
       .update(updates)
       .eq('id', id)
       .select()
@@ -77,9 +76,9 @@ export async function DELETE(
 
     // Check if user is global admin (only global admins can delete)
     const { data: currentUser } = await supabase
-      .from('users')
+      .from('profiles')
       .select('role')
-      .eq('auth_id', user.id)
+      .eq('id', user.id)
       .single();
 
     if (!currentUser || currentUser.role !== 'global_admin') {
@@ -87,7 +86,7 @@ export async function DELETE(
     }
 
     const { error } = await adminClient
-      .from('users')
+      .from('profiles')
       .delete()
       .eq('id', id);
 
