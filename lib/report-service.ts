@@ -195,6 +195,22 @@ function applyFilters(query: any, filters: ReportFilters): any {
 }
 
 /**
+ * Map groupBy option names to actual database column names
+ */
+function getDbColumnName(groupByField: string): string {
+  const columnMap: Record<string, string> = {
+    'lender': 'lender_name',
+    'retailer': 'retailer_name',
+    'bdm': 'bdm_name',
+    'status': 'status',
+    'product': 'finance_product',
+    'month': 'month',  // special handling
+    'week': 'week',    // special handling
+  };
+  return columnMap[groupByField] || groupByField;
+}
+
+/**
  * Group data and calculate aggregates
  */
 function groupAndAggregate(
@@ -213,7 +229,9 @@ function groupAndAggregate(
       if (field === 'week') {
         return record.submitted_date ? getWeekStart(record.submitted_date) : 'Unknown';
       }
-      return (record as any)[field] || 'Unknown';
+      // Use correct database column name
+      const dbColumn = getDbColumnName(field);
+      return (record as any)[dbColumn] || 'Unknown';
     });
     const key = keyParts.join('|||');
 
@@ -230,9 +248,14 @@ function groupAndAggregate(
     const keyParts = key.split('|||');
     const row: any = {};
 
-    // Add group-by fields
+    // Add group-by fields with both UI name and DB column name for compatibility
     groupBy.forEach((field, index) => {
       row[field] = keyParts[index];
+      // Also add with DB column name for frontend mapping
+      const dbColumn = getDbColumnName(field);
+      if (dbColumn !== field) {
+        row[dbColumn] = keyParts[index];
+      }
     });
 
     // Calculate all metrics

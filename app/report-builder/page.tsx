@@ -98,7 +98,7 @@ export default function ReportBuilderPage() {
         body: JSON.stringify({
           name: `${reportType.toUpperCase()} Report`,
           reportType: reportType.toUpperCase(),
-          groupBy: grouping.map(g => g.value),
+          groupBy: grouping,
           metrics: metrics,
           dateFrom: dateRange.dateFrom,
           dateTo: dateRange.dateTo,
@@ -119,18 +119,47 @@ export default function ReportBuilderPage() {
         setSummary(null);
       } else {
         // Transform API data to DataRow format
-        const rows: DataRow[] = (data.data || []).map((row: any, index: number) => ({
-          id: String(index + 1),
-          lender: row.lender_name || row.lender || '-',
-          retailer: row.retailer_name || row.retailer || '-',
-          status: row.status || '-',
-          loanValue: row.loan_value || row.loan_amount || 0,
-          commission: row.commission || row.commission_amount || 0,
-          date: row.submitted_date || row.date || '-',
-          bdm: row.bdm_name || row.bdm || '-',
-          // Include any grouped fields
-          ...row,
-        }));
+        // Check if data is grouped (has volume field from aggregation)
+        const isGroupedData = data.data?.[0]?.volume !== undefined;
+        const currentGroupBy = grouping;
+
+        const rows: DataRow[] = (data.data || []).map((row: any, index: number) => {
+          if (isGroupedData) {
+            // Grouped data: show the primary grouped field and aggregated values
+            // Find the first groupBy field that has a value to use as primary label
+            const groupLabels: string[] = [];
+            for (const field of currentGroupBy) {
+              const value = row[field] || row[field + '_name'] || '';
+              if (value && value !== 'Unknown') {
+                groupLabels.push(value);
+              }
+            }
+            const primaryLabel = groupLabels.join(' / ') || 'Unknown';
+
+            return {
+              id: String(index + 1),
+              // Use primary groupBy field in the "lender" column as identifier
+              lender: primaryLabel,
+              retailer: `${row.volume || 0} records`,
+              status: row.approval_rate ? `${row.approval_rate.toFixed(1)}% approved` : '-',
+              loanValue: row.loan_value || 0,
+              commission: row.commission || 0,
+              date: row.month || row.week || '-',
+              bdm: row.execution_rate ? `${row.execution_rate.toFixed(1)}% executed` : '-',
+            };
+          }
+          // Raw data: show individual record values
+          return {
+            id: String(index + 1),
+            lender: row.lender_name || '-',
+            retailer: row.retailer_name || '-',
+            status: row.status || '-',
+            loanValue: row.loan_amount || 0,
+            commission: row.commission_amount || 0,
+            date: row.submitted_date || '-',
+            bdm: row.bdm_name || '-',
+          };
+        });
 
         setReportData(rows);
         setSummary({
@@ -170,7 +199,7 @@ export default function ReportBuilderPage() {
         body: JSON.stringify({
           format,
           reportType: reportType.toUpperCase(),
-          groupBy: grouping.map(g => g.value),
+          groupBy: grouping,
           metrics: metrics,
           dateFrom: dateRange.dateFrom,
           dateTo: dateRange.dateTo,
