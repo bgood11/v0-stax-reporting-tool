@@ -101,9 +101,9 @@ export function DataTable({ data, isGrouped = false }: DataTableProps) {
   );
 
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-AU", {
+    return new Intl.NumberFormat("en-GB", {
       style: "currency",
-      currency: "AUD",
+      currency: "GBP",
       minimumFractionDigits: 0,
     }).format(value);
   };

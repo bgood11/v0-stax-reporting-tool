@@ -16,16 +16,16 @@ interface SummaryCardsProps {
 
 export function SummaryCards({ data }: SummaryCardsProps) {
   const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("en-AU", {
+    return new Intl.NumberFormat("en-GB", {
       style: "currency",
-      currency: "AUD",
+      currency: "GBP",
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(value);
   };
 
   const formatNumber = (value: number) => {
-    return new Intl.NumberFormat("en-AU").format(value);
+    return new Intl.NumberFormat("en-GB").format(value);
   };
 
   const cards = [

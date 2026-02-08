@@ -172,7 +172,7 @@ export async function generateExcelReport(config: ExcelExportConfig): Promise<Bu
       if (row.metric.includes('Rate')) {
         valueCell.numFmt = '0.00';
       } else if (row.metric !== 'Total Records') {
-        valueCell.numFmt = '$#,##0.00';
+        valueCell.numFmt = '£#,##0.00';
       }
 
       excelRow.getCell('metric').font = { bold: true };
