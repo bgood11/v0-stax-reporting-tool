@@ -96,11 +96,12 @@ function convertToCSV(data: any[]): string {
   const rows = data.map(row =>
     headers.map(header => {
       const value = row[header];
-      // Escape quotes and wrap in quotes if contains comma
-      if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
-        return `"${value.replace(/"/g, '""')}"`;
+      const stringValue = String(value ?? '');
+      // Escape and wrap in quotes if contains comma, quotes, or newlines
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n') || stringValue.includes('\r')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
       }
-      return value ?? '';
+      return stringValue;
     }).join(',')
   );
 

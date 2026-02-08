@@ -25,10 +25,14 @@ export async function getSalesforceAccessToken(): Promise<{ token: string; insta
 
   const clientId = process.env.SF_CLIENT_ID || process.env.SALESFORCE_CONSUMER_KEY;
   const clientSecret = process.env.SF_CLIENT_SECRET || process.env.SALESFORCE_CONSUMER_SECRET;
-  const instanceUrl = process.env.SALESFORCE_INSTANCE_URL || 'https://sherminmax.my.salesforce.com';
+  const instanceUrl = process.env.SALESFORCE_INSTANCE_URL;
 
   if (!clientId || !clientSecret) {
     throw new Error('Missing Salesforce credentials: SF_CLIENT_ID and SF_CLIENT_SECRET are required');
+  }
+
+  if (!instanceUrl) {
+    throw new Error('Missing Salesforce configuration: SALESFORCE_INSTANCE_URL is required');
   }
 
   // Client Credentials Flow uses the My Domain URL for token requests

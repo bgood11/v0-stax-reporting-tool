@@ -56,7 +56,7 @@ export async function generateExcelReport(config: ExcelExportConfig): Promise<Bu
 
   // Apply filters to header row (AutoFilter on entire data range)
   try {
-    const lastCol = String.fromCharCode(64 + columns.length);
+    const lastCol = getExcelColumnLetter(columns.length);
     (worksheet.autoFilter as any) = `A1:${lastCol}${data.length + 1}`;
   } catch (e) {
     // AutoFilter is optional - continue without it if it fails
@@ -112,7 +112,7 @@ export async function generateExcelReport(config: ExcelExportConfig): Promise<Bu
 
     // Add sum formulas for numeric columns
     for (const colIndex of numericColumns) {
-      const colLetter = String.fromCharCode(64 + colIndex);
+      const colLetter = getExcelColumnLetter(colIndex);
       const cell = summaryRow.getCell(colIndex);
       cell.value = {
         formula: `SUM(${colLetter}2:${colLetter}${worksheet.rowCount - 2})`
@@ -288,4 +288,20 @@ function getDateColumns(data: any[], columns: string[]): number[] {
   }
 
   return dateCols;
+}
+
+/**
+ * Convert column index (1-based) to Excel column letter (A, B, ..., Z, AA, AB, etc.)
+ */
+function getExcelColumnLetter(columnIndex: number): string {
+  let letter = '';
+  let num = columnIndex;
+
+  while (num > 0) {
+    num--; // Adjust for 1-based indexing
+    letter = String.fromCharCode(65 + (num % 26)) + letter;
+    num = Math.floor(num / 26);
+  }
+
+  return letter;
 }

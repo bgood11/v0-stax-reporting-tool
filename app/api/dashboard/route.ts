@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getDashboardStats } from '@/lib/report-service';
+import { getAuthContext } from '@/lib/middleware/auth';
 
 export async function GET() {
   // Verify auth
@@ -11,8 +12,16 @@ export async function GET() {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
+  // Get auth context for BDM data filtering
+  let authContext;
   try {
-    const stats = await getDashboardStats();
+    authContext = await getAuthContext();
+  } catch (contextError: any) {
+    return NextResponse.json({ error: contextError.message }, { status: 403 });
+  }
+
+  try {
+    const stats = await getDashboardStats(authContext);
     return NextResponse.json(stats);
   } catch (error: any) {
     console.error('Failed to get dashboard stats:', error);

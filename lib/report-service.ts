@@ -451,52 +451,67 @@ export async function getReportPresets(userId?: string) {
 
 /**
  * Get dashboard stats
+ * Accepts optional authContext for BDM row-level security filtering
  * FIXED: Use SQL aggregation via RPC functions for efficient queries on large datasets
  */
-export async function getDashboardStats() {
+export async function getDashboardStats(authContext?: AuthContext) {
   const supabase = createAdminClient();
 
   try {
-    // Use RPC function for efficient SQL aggregation
-    const { data: stats, error: statsError } = await supabase.rpc('get_dashboard_stats');
+    // Use RPC function for efficient SQL aggregation if user has full access
+    // Otherwise fall back to manual queries with BDM filtering
+    if (!authContext || authContext.hasFullAccess) {
+      const { data: stats, error: statsError } = await supabase.rpc('get_dashboard_stats');
 
-    if (statsError) {
-      console.error('RPC get_dashboard_stats failed:', statsError);
-      // Fall back to manual queries if RPC not available
-      return await getDashboardStatsFallback();
+      if (statsError) {
+        console.error('RPC get_dashboard_stats failed:', statsError);
+        // Fall back to manual queries if RPC not available
+        return await getDashboardStatsFallback(authContext);
+      }
+
+      // Get last sync info
+      const { data: lastSync } = await supabase
+        .from('sync_log')
+        .select('*')
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      return {
+        totalApplications: stats?.totalApplications || 0,
+        totalLoanValue: stats?.totalLoanValue || 0,
+        totalCommission: stats?.totalCommission || 0,
+        statusBreakdown: stats?.statusBreakdown || {},
+        lastSync: lastSync || null
+      };
     }
 
-    // Get last sync info
-    const { data: lastSync } = await supabase
-      .from('sync_log')
-      .select('*')
-      .order('started_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    return {
-      totalApplications: stats?.totalApplications || 0,
-      totalLoanValue: stats?.totalLoanValue || 0,
-      totalCommission: stats?.totalCommission || 0,
-      statusBreakdown: stats?.statusBreakdown || {},
-      lastSync: lastSync || null
-    };
+    // For users with restricted access, use fallback with BDM filtering
+    return await getDashboardStatsFallback(authContext);
   } catch (error) {
     console.error('getDashboardStats error:', error);
-    return await getDashboardStatsFallback();
+    return await getDashboardStatsFallback(authContext);
   }
 }
 
 /**
  * Fallback for dashboard stats if RPC function not available
+ * Accepts optional authContext for BDM row-level security filtering
  */
-async function getDashboardStatsFallback() {
+async function getDashboardStatsFallback(authContext?: AuthContext) {
   const supabase = createAdminClient();
 
   // Get total count using Supabase's count functionality
-  const { count: totalApplications, error: countError } = await supabase
+  let countQuery = supabase
     .from('application_decisions')
     .select('*', { count: 'exact', head: true });
+
+  // Apply BDM filtering if authContext provided
+  if (authContext) {
+    countQuery = applyAuthFilters(countQuery, authContext);
+  }
+
+  const { count: totalApplications, error: countError } = await countQuery;
 
   if (countError) {
     console.error('Failed to get total count:', countError);
@@ -507,20 +522,34 @@ async function getDashboardStatsFallback() {
   const statusCounts: Record<string, number> = {};
 
   for (const status of statuses) {
-    const { count } = await supabase
+    let statusQuery = supabase
       .from('application_decisions')
       .select('*', { count: 'exact', head: true })
       .eq('status', status);
+
+    // Apply BDM filtering if authContext provided
+    if (authContext) {
+      statusQuery = applyAuthFilters(statusQuery, authContext);
+    }
+
+    const { count } = await statusQuery;
     if (count && count > 0) {
       statusCounts[status] = count;
     }
   }
 
   // Get totals using aggregate query - sample approach for fallback
-  const { data: sample } = await supabase
+  let sampleQuery = supabase
     .from('application_decisions')
     .select('loan_amount, commission_amount')
     .limit(10000);
+
+  // Apply BDM filtering if authContext provided
+  if (authContext) {
+    sampleQuery = applyAuthFilters(sampleQuery, authContext);
+  }
+
+  const { data: sample } = await sampleQuery;
 
   const sampleSize = sample?.length || 0;
   const totalRecords = totalApplications || 0;

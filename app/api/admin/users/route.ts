@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const supabase = await createClient();
 
@@ -13,27 +13,45 @@ export async function GET() {
 
     // Check if user is admin
     const { data: currentUser } = await supabase
-      .from('users')
+      .from('profiles')
       .select('role')
-      .eq('auth_id', user.id)
+      .eq('id', user.id)
       .single();
 
     if (!currentUser || (currentUser.role !== 'global_admin' && currentUser.role !== 'admin')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Get all users
-    const { data: users, error } = await supabase
-      .from('users')
-      .select('*')
-      .order('created_at', { ascending: false });
+    // Get query parameters for pagination
+    const url = new URL(request.url);
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '50')));
+    const offset = (page - 1) * limit;
+
+    // Get users with pagination
+    const { data: users, error, count } = await supabase
+      .from('profiles')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
 
     if (error) {
       console.error('Error fetching users:', error);
       return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 });
     }
 
-    return NextResponse.json({ users: users || [] });
+    const totalCount = count || 0;
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return NextResponse.json({
+      users: users || [],
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages,
+      },
+    });
   } catch (error) {
     console.error('Admin users API error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -53,9 +71,9 @@ export async function POST(request: Request) {
 
     // Check if user is admin
     const { data: currentUser } = await supabase
-      .from('users')
+      .from('profiles')
       .select('role')
-      .eq('auth_id', user.id)
+      .eq('id', user.id)
       .single();
 
     if (!currentUser || (currentUser.role !== 'global_admin' && currentUser.role !== 'admin')) {
@@ -63,7 +81,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { email, name, role, retailer } = body;
+    const { email, name, role } = body;
 
     if (!email) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 });
@@ -71,7 +89,7 @@ export async function POST(request: Request) {
 
     // Check if user already exists
     const { data: existingUser } = await adminClient
-      .from('users')
+      .from('profiles')
       .select('id')
       .eq('email', email.toLowerCase())
       .single();
@@ -80,33 +98,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'User already exists' }, { status: 400 });
     }
 
-    // Create user record (they'll complete signup via magic link)
-    const { data: newUser, error } = await adminClient
-      .from('users')
-      .insert({
-        email: email.toLowerCase(),
-        name: name || null,
-        role: role || 'viewer',
-        retailer: retailer === 'All' ? null : retailer || null,
-        status: 'active',
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error creating user:', error);
-      return NextResponse.json({ error: 'Failed to create user' }, { status: 500 });
-    }
-
-    // Send magic link invitation
+    // Send magic link invitation first
     const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email.toLowerCase());
 
     if (inviteError) {
       console.error('Error sending invite:', inviteError);
-      // User was created but invite failed - still return success
+      return NextResponse.json({ error: 'Failed to send invitation' }, { status: 500 });
     }
 
-    return NextResponse.json({ user: newUser });
+    // The profile will be auto-created by the trigger on auth.users
+    // But we can optionally fetch it after a short delay or just return the invitation success
+    return NextResponse.json({
+      message: 'Invitation sent successfully',
+      email: email.toLowerCase(),
+    });
   } catch (error) {
     console.error('Admin create user error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

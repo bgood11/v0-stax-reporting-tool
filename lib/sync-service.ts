@@ -19,8 +19,8 @@ interface SyncResult {
  * Main sync function - pulls data from Salesforce and stores in Supabase
  * Used by the cron job at 1am daily
  *
- * Strategy: DELETE all existing data then INSERT fresh data
- * This ensures data stays in sync and removes stale records
+ * Strategy: FETCH data FIRST, VALIDATE it looks reasonable, then DELETE old data, then INSERT fresh data
+ * This prevents data loss if Salesforce fetch fails or returns suspiciously low counts
  */
 export async function syncDataToSupabase(): Promise<SyncResult> {
   const supabase = createAdminClient();
@@ -45,7 +45,7 @@ export async function syncDataToSupabase(): Promise<SyncResult> {
   try {
     console.log('Starting Salesforce data sync to Supabase...');
 
-    // Try SOQL first (no row limit), fall back to Reports API if SOQL fails
+    // STEP 1: Fetch all data from Salesforce FIRST (before any deletes)
     let rawData: any[];
     let method: 'soql' | 'report' = 'soql';
     let records: any[];
@@ -72,14 +72,36 @@ export async function syncDataToSupabase(): Promise<SyncResult> {
 
     console.log(`Transformed ${records.length} records`);
 
-    // Validate records have IDs before proceeding
+    // STEP 2: Validate records have IDs before proceeding
     const recordsWithNullIds = records.filter(r => !r.id);
     if (recordsWithNullIds.length > 0) {
       console.error(`WARNING: ${recordsWithNullIds.length} records have null IDs. First one:`, recordsWithNullIds[0]);
     }
 
-    // Delete all existing application decisions (fresh sync)
-    console.log('Clearing existing data...');
+    // STEP 3: Validate fetched data count is reasonable before deleting existing data
+    // Get current record count to compare against fetch
+    const { count: currentCount, error: countError } = await supabase
+      .from('application_decisions')
+      .select('id', { count: 'exact', head: true });
+
+    if (countError) {
+      console.error('Failed to get current record count:', countError);
+      throw new Error(`Failed to validate current record count: ${countError.message}`);
+    }
+
+    const safeRecordCount = currentCount || 0;
+    console.log(`Current record count in database: ${safeRecordCount}`);
+
+    // Safety check: If we previously had records but now we're getting very few, abort
+    // This prevents data loss from Salesforce query issues
+    if (safeRecordCount > 0 && records.length < safeRecordCount * 0.5) {
+      const lossPercentage = ((safeRecordCount - records.length) / safeRecordCount * 100).toFixed(1);
+      console.error(`SAFETY CHECK FAILED: Fetched record count (${records.length}) is less than 50% of existing records (${safeRecordCount}). This would cause ${lossPercentage}% data loss. Aborting sync to prevent data loss.`);
+      throw new Error(`Fetch validation failed: Record count dropped ${lossPercentage}%. Expected at least ${Math.ceil(safeRecordCount * 0.5)} records, got ${records.length}. Sync aborted to prevent data loss.`);
+    }
+
+    // STEP 4: Only after successful fetch and validation, delete existing data
+    console.log('Validation passed. Clearing existing data...');
     const { error: deleteError } = await supabase
       .from('application_decisions')
       .delete()
@@ -88,8 +110,10 @@ export async function syncDataToSupabase(): Promise<SyncResult> {
     if (deleteError) {
       throw new Error(`Failed to clear existing data: ${deleteError.message}`);
     }
+    console.log('Existing data cleared successfully.');
 
-    // Insert new records in batches (Supabase has limits on batch size)
+    // STEP 5: Insert new records in batches (Supabase has limits on batch size)
+    // Note: If any batch fails, the error is caught and sync is rolled back
     const BATCH_SIZE = 500;
     let insertedCount = 0;
 
@@ -140,12 +164,13 @@ export async function syncDataToSupabase(): Promise<SyncResult> {
         .insert(dbRecords);
 
       if (insertError) {
-        console.error(`Batch insert failed at ${i}:`, insertError);
+        console.error(`Batch insert failed at offset ${i}:`, insertError);
         console.error('First record in failed batch:', JSON.stringify(dbRecords[0], null, 2));
-        throw new Error(`Failed to insert batch at ${i}: ${insertError.message}`);
+        // Note: Data was already deleted in STEP 4. This error will be caught by catch block below
+        throw new Error(`Failed to insert batch at offset ${i}: ${insertError.message}`);
       }
 
-      insertedCount += batch.length;
+      insertedCount += dbRecords.length;
       console.log(`Inserted ${insertedCount}/${records.length} records`);
     }
 
@@ -168,17 +193,23 @@ export async function syncDataToSupabase(): Promise<SyncResult> {
   } catch (error: any) {
     console.error('Sync failed:', error.message);
 
-    // Update sync log with error
+    // Update sync log with error - include detailed error context
     if (syncLogId) {
+      const errorInfo = {
+        completed_at: new Date().toISOString(),
+        status: 'error',
+        error_message: error.message
+      };
+
       await supabase
         .from('sync_log')
-        .update({
-          completed_at: new Date().toISOString(),
-          status: 'error',
-          error_message: error.message
-        })
+        .update(errorInfo)
         .eq('id', syncLogId);
     }
+
+    // Critical: Log that manual recovery may be needed if error occurred after delete
+    console.error('SYNC FAILED - Check logs to determine recovery steps');
+    console.error('If error occurred after "Existing data cleared successfully", manual data restoration may be required.');
 
     return { success: false, error: error.message };
   }

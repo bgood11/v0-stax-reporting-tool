@@ -81,14 +81,14 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: any) {
+    // Log error details server-side for debugging, but don't expose to client
+    logError(error, CONTEXT);
+
     const appError = createError(
       'SERVER_ERROR',
-      error.message || 'Report generation failed',
+      'Report generation failed',
       {
-        details: {
-          errorName: error.name,
-          stack: error.stack?.split('\n').slice(0, 3).join('\n')
-        }
+        userMessage: 'Unable to generate report. Please try again or contact support.'
       }
     );
     return createErrorResponse(appError, CONTEXT);
