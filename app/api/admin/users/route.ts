@@ -4,6 +4,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 export async function GET(request: Request) {
   try {
     const supabase = await createClient();
+    const adminClient = createAdminClient();
 
     // Check auth
     const { data: { user } } = await supabase.auth.getUser();
@@ -11,8 +12,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user is admin
-    const { data: currentUser } = await supabase
+    // Check if user is admin (use admin client to bypass RLS)
+    const { data: currentUser } = await adminClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -28,8 +29,8 @@ export async function GET(request: Request) {
     const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '50')));
     const offset = (page - 1) * limit;
 
-    // Get users with pagination
-    const { data: users, error, count } = await supabase
+    // Get users with pagination (use admin client to bypass RLS and see all users)
+    const { data: users, error, count } = await adminClient
       .from('profiles')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
