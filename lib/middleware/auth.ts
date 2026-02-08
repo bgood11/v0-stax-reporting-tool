@@ -45,14 +45,36 @@ export async function getAuthContext(): Promise<AuthContext> {
   }
 
   // Fetch user profile to get role
-  const { data: profile, error: profileError } = await supabase
+  let { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('*')
     .eq('id', user.id)
     .single();
 
+  // Auto-create profile if it doesn't exist (first login)
   if (profileError || !profile) {
-    throw new Error('User profile not found');
+    console.log('Profile not found for user, creating default profile:', user.email);
+
+    // Create default profile with viewer role
+    const { data: newProfile, error: createError } = await supabase
+      .from('profiles')
+      .insert({
+        id: user.id,
+        email: user.email,
+        full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+        role: 'viewer',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (createError || !newProfile) {
+      console.error('Failed to create user profile:', createError);
+      throw new Error('User profile not found and could not be created');
+    }
+
+    profile = newProfile;
   }
 
   const userProfile = profile as Profile;
