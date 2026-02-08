@@ -202,13 +202,24 @@ export function FiltersSection({ filters, onChange }: FiltersSectionProps) {
     financeProducts: [],
   });
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
   // Fetch filter options from API
   React.useEffect(() => {
     fetch('/api/filters/options')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) {
+          if (res.status === 401) {
+            throw new Error('Session expired. Please refresh the page to log in again.');
+          }
+          throw new Error(`Failed to load filters (${res.status})`);
+        }
+        return res.json();
+      })
       .then(data => {
-        if (!data.error) {
+        if (data.error) {
+          setError(data.error);
+        } else {
           setFilterOptions({
             lenders: data.lenders || [],
             statuses: data.statuses || [],
@@ -216,9 +227,13 @@ export function FiltersSection({ filters, onChange }: FiltersSectionProps) {
             bdms: data.bdms || [],
             financeProducts: data.financeProducts || [],
           });
+          setError(null);
         }
       })
-      .catch(err => console.error('Failed to load filter options:', err))
+      .catch(err => {
+        console.error('Failed to load filter options:', err);
+        setError(err.message || 'Failed to load filter options');
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -262,6 +277,11 @@ export function FiltersSection({ filters, onChange }: FiltersSectionProps) {
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {error && (
+              <div className="sm:col-span-2 lg:col-span-3 p-4 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-sm">
+                {error}
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">
                 Date Range

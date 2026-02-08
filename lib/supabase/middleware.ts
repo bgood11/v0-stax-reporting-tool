@@ -39,8 +39,17 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith('/api/auth/')
   )
 
-  // Redirect to login if not authenticated and trying to access protected route
+  // Handle unauthenticated requests
   if (!user && !isPublicPath) {
+    // For API routes, return 401 JSON response (not redirect)
+    if (request.nextUrl.pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: 'Not authenticated', code: 'AUTH_ERROR', retryable: false },
+        { status: 401 }
+      )
+    }
+
+    // For page routes, redirect to login
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)
