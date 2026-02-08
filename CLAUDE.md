@@ -215,7 +215,42 @@ The admin UI and auth middleware use different tables:
 **Impact:** Single retailer in admin UI vs multi-retailer in auth system
 **Future Fix:** Unify on `profiles` table + `bdm_retailer_assignments` for multi-retailer support
 
-## Recent Changes (2026-02-07)
+## Recent Changes (2026-02-08)
+
+### Session 3: AD Name Column and AP/AD Report Differentiation
+
+**Problem:** AD Name (AD-XXXXXX) wasn't clearly visible in the database, and the AP/AD report toggle didn't actually differentiate behavior.
+
+**Key Understanding (from Barney):**
+- One Application (AP-XXXXXX) can have multiple Application Decisions (AD-XXXXXX)
+- Each AD represents a lender's decision in the waterfall
+- This allows lender-specific reporting
+- The 187k record count IS correct (it matches Salesforce's Total Records)
+
+**Changes:**
+1. **Added `ad_name` column** to `application_decisions` table
+   - Explicitly stores AD-XXXXXX for clarity
+   - Previously only stored in `id` column (still there as PK)
+
+2. **Created `application_summary` PostgreSQL view**
+   - Aggregates ADs by `application_number`
+   - Calculates "best" status (hierarchy: Live > Executed > Approved > etc.)
+   - Includes all lenders involved per application
+
+3. **Implemented reportType differentiation in generateReport()**
+   - AD Reports: Query `application_decisions` table (individual lender decisions)
+   - AP Reports: Query `application_summary` view (aggregated by application)
+
+**Migration Required:** Run SQL in:
+`/supabase/migrations/20260208_add_ad_name_column.sql`
+
+Then trigger a sync to populate the `ad_name` column.
+
+**Commit:** `7d12924` - feat: Add AD Name column and implement AP/AD report differentiation
+
+---
+
+## Changes (2026-02-07)
 
 ### Session 2: SQL Aggregation Fix for Dashboard and Filters
 
