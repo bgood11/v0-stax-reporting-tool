@@ -222,14 +222,10 @@ export function validateReportInput(body: any): AppError | null {
     );
   }
 
-  // Validate filters exist but can be empty
-  if (!body.filters || typeof body.filters !== 'object') {
-    return createError(
-      'VALIDATION_ERROR',
-      'Filters object is required',
-      { userMessage: 'Please select at least one filter to generate a report.' }
-    );
-  }
+  // Filters can be passed either as nested object or flat properties
+  // The API route accepts flat properties: dateFrom, dateTo, lenders, etc.
+  // No strict validation required here - empty filters are allowed
+  // (will return all data within auth context permissions)
 
   return null;
 }
