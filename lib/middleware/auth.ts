@@ -61,7 +61,7 @@ export async function getAuthContext(): Promise<AuthContext> {
       .insert({
         id: user.id,
         email: user.email,
-        full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+        name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
         role: 'viewer',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
