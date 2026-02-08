@@ -102,6 +102,7 @@ export async function syncDataToSupabase(): Promise<SyncResult> {
         .filter(r => r.id) // Skip records without IDs
         .map(r => ({
           id: r.id,
+          ad_name: r.id, // Explicit AD Name column for clarity
           application_number: r.ap_number || null,
           lender_name: r.lender_name || null,
           status: r.derived_status || 'Created',

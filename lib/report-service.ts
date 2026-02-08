@@ -23,6 +23,10 @@ interface GroupedData {
 /**
  * Generate a report based on config
  * Accepts optional authContext for BDM row-level security
+ *
+ * Report Types:
+ * - AD (Application Decision): Individual lender decisions in the waterfall
+ * - AP (Application): Aggregated view per application number
  */
 export async function generateReport(
   config: ReportConfig,
@@ -30,15 +34,24 @@ export async function generateReport(
   authContext?: AuthContext
 ): Promise<ReportResult> {
   const supabase = createAdminClient();
+  const reportType = config.reportType || 'AD';
 
   try {
+    // For AP reports, use the application_summary view (aggregated by application_number)
+    // For AD reports, use the application_decisions table (individual lender decisions)
+    const tableName = reportType === 'AP' ? 'application_summary' : 'application_decisions';
+
     // Build query with filters
-    // FIXED: Added high limit to bypass Supabase's default 1000 row limit
-    let query = supabase.from('application_decisions').select('*').limit(500000);
+    let query = supabase.from(tableName).select('*').limit(500000);
 
     // Apply user-based filters for BDM data isolation
     if (authContext) {
-      query = applyAuthFilters(query, authContext);
+      if (reportType === 'AD') {
+        query = applyAuthFilters(query, authContext);
+      } else if (!authContext.hasFullAccess && authContext.assignedBdmNames.length > 0) {
+        // For AP reports, filter by bdm_name directly on the view
+        query = query.in('bdm_name', authContext.assignedBdmNames);
+      }
     }
 
     // Apply report-specific filters

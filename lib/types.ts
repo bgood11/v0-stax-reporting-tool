@@ -2,7 +2,8 @@
 
 export interface ApplicationDecision {
   id: string
-  application_number: string | null
+  ad_name: string | null  // Application Decision Name (AD-XXXXXX)
+  application_number: string | null  // Application Number (AP-XXXXXX)
   lender_name: string | null
   status: string | null
   submitted_date: string | null
