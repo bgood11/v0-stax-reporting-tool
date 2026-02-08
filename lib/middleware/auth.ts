@@ -44,8 +44,11 @@ export async function getAuthContext(): Promise<AuthContext> {
     throw new Error('Not authenticated');
   }
 
-  // Fetch user profile to get role
-  let { data: profile, error: profileError } = await supabase
+  // Use admin client to bypass RLS for profile operations
+  const adminClient = createAdminClient();
+
+  // Fetch user profile to get role (using admin client to bypass RLS)
+  let { data: profile, error: profileError } = await adminClient
     .from('profiles')
     .select('*')
     .eq('id', user.id)
@@ -55,10 +58,7 @@ export async function getAuthContext(): Promise<AuthContext> {
   if (profileError || !profile) {
     console.log('Profile not found for user, creating default profile:', user.email);
 
-    // Use admin client to bypass RLS policies (avoids infinite recursion)
-    const adminClient = createAdminClient();
-
-    // Create default profile with viewer role
+    // Create default profile with viewer role (adminClient already created above)
     const { data: newProfile, error: createError } = await adminClient
       .from('profiles')
       .insert({
