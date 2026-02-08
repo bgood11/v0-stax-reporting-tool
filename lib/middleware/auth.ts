@@ -11,7 +11,7 @@
  * - Users with no assignments: See NO data
  */
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import type { Profile } from '@/lib/types';
 
 export interface AuthContext {
@@ -55,8 +55,11 @@ export async function getAuthContext(): Promise<AuthContext> {
   if (profileError || !profile) {
     console.log('Profile not found for user, creating default profile:', user.email);
 
+    // Use admin client to bypass RLS policies (avoids infinite recursion)
+    const adminClient = createAdminClient();
+
     // Create default profile with viewer role
-    const { data: newProfile, error: createError } = await supabase
+    const { data: newProfile, error: createError } = await adminClient
       .from('profiles')
       .insert({
         id: user.id,
