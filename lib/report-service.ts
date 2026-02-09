@@ -204,6 +204,9 @@ function getDbColumnName(groupByField: string): string {
     'bdm': 'bdm_name',
     'status': 'status',
     'product': 'finance_product',
+    'financeProduct': 'finance_product',
+    'primeSubprime': 'prime_subprime',
+    'primeSubPrime': 'prime_subprime',
     'month': 'month',  // special handling
     'week': 'week',    // special handling
   };

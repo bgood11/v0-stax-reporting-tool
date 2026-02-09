@@ -275,9 +275,6 @@ function ReportBuilderContent() {
   const metricsMap: Record<string, string> = {
     'applicationCount': 'totalApplications',
     'totalCommission': 'commission',
-    'conversionRate': 'executionRate',
-    'settledCount': 'totalApplications',
-    'percentageOfTotal': 'totalApplications',
     'loanValue': 'loanValue',
     'approvalRate': 'approvalRate',
     'commission': 'commission',
