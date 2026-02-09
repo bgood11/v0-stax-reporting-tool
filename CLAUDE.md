@@ -198,6 +198,35 @@ GET `/api/sync?action=status`
 - [ ] P1-4: Request Validation (zod schemas)
 - [ ] P1-5: Accessibility Improvements
 
+### Future Enhancements (P2)
+
+**Report Visualisations:**
+Currently all reports produce tabular data only. Future enhancements to add actual visualisations:
+
+- [ ] **Funnel Charts** - For conversion/execution reports (e.g., Applications → Approved → Executed → Live)
+- [ ] **Trend Lines** - For time-based reports (monthly/weekly groupings) showing progression over time
+- [ ] **Pie/Donut Charts** - For distribution reports (product mix, prime vs sub-prime split)
+- [ ] **Bar Charts** - For comparison reports (BDM performance, lender volumes)
+- [ ] **Stacked Area Charts** - For volume trends with category breakdown
+
+**Implementation Options:**
+1. Recharts (already available in the stack) - React-based charting
+2. Chart.js via React wrapper
+3. D3.js for custom visualisations
+
+**Affected Presets:**
+- "Lender Execution Rates" → Add funnel visualisation
+- "Monthly Approval Rate by Lender" → Add trend line chart
+- "Finance Product Breakdown" → Add pie chart
+- "Weekly Retailer Volume" → Add stacked area chart
+
+**Other P2 Enhancements:**
+- [ ] Save Preset functionality (currently shows "coming soon")
+- [ ] Email templates for scheduled reports (branded HTML)
+- [ ] PDF export with charts embedded
+- [ ] Report sharing/collaboration
+- [ ] Scheduled report failure notifications
+
 ## Troubleshooting
 
 ### Auth: "Login successful but redirects back to login"
