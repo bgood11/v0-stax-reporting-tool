@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { AppLayout } from "@/components/app-layout";
 import {
   ReportTypeToggle,
@@ -60,7 +62,7 @@ function getDateRange(preset: string): { dateFrom?: string; dateTo?: string } {
   }
 }
 
-export default function ReportBuilderPage() {
+function ReportBuilderContent() {
   const [reportType, setReportType] = React.useState<ReportType>("ad");
   const [filters, setFilters] = React.useState<FilterValues>({
     dateRange: "last30days",
@@ -251,6 +253,71 @@ export default function ReportBuilderPage() {
 
   const canGenerate = metrics.length > 0;
 
+  // Read URL parameters from presets navigation
+  const searchParams = useSearchParams();
+
+  React.useEffect(() => {
+    const reportTypeParam = searchParams.get('reportType');
+    const groupByParam = searchParams.get('groupBy');
+    const metricsParam = searchParams.get('metrics');
+
+    if (reportTypeParam) {
+      // Convert preset report type to our AD/AP toggle
+      // Presets may have specific types like "APPROVAL", "CONVERSION", etc.
+      // Default to 'ad' for application decisions
+      const type = reportTypeParam.toLowerCase();
+      if (type === 'ap' || type === 'approved_paid') {
+        setReportType('ap');
+      } else {
+        setReportType('ad');
+      }
+    }
+
+    if (groupByParam) {
+      // GroupBy comes as comma-separated values like "lender,month"
+      const groupByValues = groupByParam.split(',').filter(Boolean);
+      // Map preset groupBy names to valid GroupingOption values
+      const groupingMap: Record<string, string> = {
+        'financeProduct': 'product',
+        'primeSubPrime': 'primeSubprime',
+        // These stay the same:
+        'lender': 'lender',
+        'retailer': 'retailer',
+        'bdm': 'bdm',
+        'status': 'status',
+        'month': 'month',
+        'week': 'week',
+        'product': 'product',
+        'primeSubprime': 'primeSubprime',
+      };
+      const mappedGrouping = groupByValues.map(g => groupingMap[g] || g);
+      setGrouping(mappedGrouping as GroupingOption[]);
+    }
+
+    if (metricsParam) {
+      // Metrics come as comma-separated values
+      const metricsValues = metricsParam.split(',').filter(Boolean);
+      // Map preset metric names to UI metric IDs
+      const metricsMap: Record<string, string> = {
+        'applicationCount': 'totalApplications',
+        'totalCommission': 'commission',
+        'conversionRate': 'executionRate',
+        'settledCount': 'totalApplications', // approximation
+        'percentageOfTotal': 'totalApplications', // approximation
+        // These stay the same:
+        'loanValue': 'loanValue',
+        'approvalRate': 'approvalRate',
+        'commission': 'commission',
+        'executionRate': 'executionRate',
+        'totalApplications': 'totalApplications',
+      };
+      const mappedMetrics = metricsValues.map(m => metricsMap[m] || m);
+      // Remove duplicates
+      const uniqueMetrics = [...new Set(mappedMetrics)];
+      setMetrics(uniqueMetrics);
+    }
+  }, [searchParams]);
+
   if (showResults) {
     return (
       <AppLayout pageTitle="Report Results">
@@ -347,5 +414,20 @@ export default function ReportBuilderPage() {
         />
       </div>
     </AppLayout>
+  );
+}
+
+// Wrap in Suspense boundary for useSearchParams
+export default function ReportBuilderPage() {
+  return (
+    <Suspense fallback={
+      <AppLayout pageTitle="Report Builder">
+        <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
+          <LoadingSkeleton />
+        </div>
+      </AppLayout>
+    }>
+      <ReportBuilderContent />
+    </Suspense>
   );
 }

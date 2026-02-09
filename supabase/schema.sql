@@ -235,5 +235,159 @@ INSERT INTO report_presets (id, user_id, name, description, config, is_built_in)
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================
+-- 8. SCHEDULED REPORTS
+-- ============================================
+CREATE TABLE IF NOT EXISTS scheduled_reports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  config JSONB NOT NULL, -- Report configuration (filters, grouping, metrics)
+  schedule_type TEXT NOT NULL CHECK (schedule_type IN ('daily', 'weekly', 'monthly')),
+  schedule_day INTEGER, -- Day of week (0-6) for weekly, day of month (1-31) for monthly
+  schedule_time TIME NOT NULL DEFAULT '09:00', -- Time of day to run
+  recipients JSONB NOT NULL, -- Array of email addresses
+  is_active BOOLEAN DEFAULT TRUE,
+  last_run_at TIMESTAMPTZ,
+  next_run_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index for finding due reports
+CREATE INDEX IF NOT EXISTS idx_sr_next_run ON scheduled_reports(next_run_at) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_sr_user ON scheduled_reports(user_id);
+
+-- Enable RLS
+ALTER TABLE scheduled_reports ENABLE ROW LEVEL SECURITY;
+
+-- Users can see their own scheduled reports
+CREATE POLICY "Users can read own scheduled reports" ON scheduled_reports
+  FOR SELECT USING (user_id = auth.uid());
+
+-- Users can create their own scheduled reports
+CREATE POLICY "Users can create own scheduled reports" ON scheduled_reports
+  FOR INSERT WITH CHECK (user_id = auth.uid());
+
+-- Users can update their own scheduled reports
+CREATE POLICY "Users can update own scheduled reports" ON scheduled_reports
+  FOR UPDATE USING (user_id = auth.uid());
+
+-- Users can delete their own scheduled reports
+CREATE POLICY "Users can delete own scheduled reports" ON scheduled_reports
+  FOR DELETE USING (user_id = auth.uid());
+
+-- Admins can view all scheduled reports
+CREATE POLICY "Admins can read all scheduled reports" ON scheduled_reports
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('global_admin', 'admin')
+    )
+  );
+
+-- ============================================
+-- 9. SCHEDULED REPORT RUNS (execution log)
+-- ============================================
+CREATE TABLE IF NOT EXISTS scheduled_report_runs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  scheduled_report_id UUID NOT NULL REFERENCES scheduled_reports(id) ON DELETE CASCADE,
+  started_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
+  status TEXT DEFAULT 'running' CHECK (status IN ('running', 'success', 'failed')),
+  record_count INTEGER,
+  result_summary JSONB,
+  error_message TEXT,
+  email_sent BOOLEAN DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_srr_schedule ON scheduled_report_runs(scheduled_report_id);
+CREATE INDEX IF NOT EXISTS idx_srr_status ON scheduled_report_runs(status);
+
+-- Enable RLS
+ALTER TABLE scheduled_report_runs ENABLE ROW LEVEL SECURITY;
+
+-- Users can see runs for their own scheduled reports
+CREATE POLICY "Users can read own scheduled report runs" ON scheduled_report_runs
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM scheduled_reports WHERE id = scheduled_report_id AND user_id = auth.uid()
+    )
+  );
+
+-- Admins can view all runs
+CREATE POLICY "Admins can read all scheduled report runs" ON scheduled_report_runs
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('global_admin', 'admin')
+    )
+  );
+
+-- ============================================
+-- 10. FUNCTION: Calculate next run time
+-- ============================================
+CREATE OR REPLACE FUNCTION calculate_next_run(
+  p_schedule_type TEXT,
+  p_schedule_day INTEGER,
+  p_schedule_time TIME
+) RETURNS TIMESTAMPTZ AS $$
+DECLARE
+  v_next_run TIMESTAMPTZ;
+  v_now TIMESTAMPTZ := NOW();
+  v_today DATE := CURRENT_DATE;
+  v_current_dow INTEGER := EXTRACT(DOW FROM v_today);
+  v_current_dom INTEGER := EXTRACT(DAY FROM v_today);
+BEGIN
+  CASE p_schedule_type
+    WHEN 'daily' THEN
+      -- Run today if time hasn't passed, otherwise tomorrow
+      IF v_now::TIME < p_schedule_time THEN
+        v_next_run := v_today + p_schedule_time;
+      ELSE
+        v_next_run := (v_today + INTERVAL '1 day') + p_schedule_time;
+      END IF;
+
+    WHEN 'weekly' THEN
+      -- Find next occurrence of the specified day
+      IF v_current_dow = p_schedule_day AND v_now::TIME < p_schedule_time THEN
+        v_next_run := v_today + p_schedule_time;
+      ELSE
+        v_next_run := (v_today + ((7 + p_schedule_day - v_current_dow) % 7 +
+          CASE WHEN v_current_dow = p_schedule_day THEN 7 ELSE 0 END) * INTERVAL '1 day') + p_schedule_time;
+      END IF;
+
+    WHEN 'monthly' THEN
+      -- Find next occurrence of the specified day of month
+      IF v_current_dom = p_schedule_day AND v_now::TIME < p_schedule_time THEN
+        v_next_run := v_today + p_schedule_time;
+      ELSIF v_current_dom < p_schedule_day THEN
+        -- This month, on the specified day
+        v_next_run := DATE_TRUNC('month', v_today) + (p_schedule_day - 1) * INTERVAL '1 day' + p_schedule_time;
+      ELSE
+        -- Next month, on the specified day
+        v_next_run := DATE_TRUNC('month', v_today) + INTERVAL '1 month' + (p_schedule_day - 1) * INTERVAL '1 day' + p_schedule_time;
+      END IF;
+  END CASE;
+
+  RETURN v_next_run;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================
+-- 11. TRIGGER: Update next_run_at on schedule changes
+-- ============================================
+CREATE OR REPLACE FUNCTION update_scheduled_report_next_run()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.next_run_at := calculate_next_run(NEW.schedule_type, NEW.schedule_day, NEW.schedule_time);
+  NEW.updated_at := NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_update_schedule_next_run ON scheduled_reports;
+CREATE TRIGGER trigger_update_schedule_next_run
+  BEFORE INSERT OR UPDATE OF schedule_type, schedule_day, schedule_time ON scheduled_reports
+  FOR EACH ROW EXECUTE FUNCTION update_scheduled_report_next_run();
+
+-- ============================================
 -- DONE! Your database is ready.
 -- ============================================

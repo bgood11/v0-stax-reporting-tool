@@ -87,8 +87,13 @@ Returns fully-qualified names: `Application_Decision__c.Name`, `Account.Owner.Na
 
 ### API Routes
 - `/app/api/cron/sync/route.ts` - Daily Salesforce sync (Vercel cron)
+- `/app/api/cron/reports/route.ts` - Scheduled reports execution (15-min cron)
 - `/app/api/sync/route.ts` - Manual sync trigger + status
 - `/app/api/reports/generate/route.ts` - Generate reports
+- `/app/api/reports/export/route.ts` - Export reports (CSV, XLSX)
+- `/app/api/reports/history/route.ts` - Report history
+- `/app/api/reports/presets/route.ts` - Report presets
+- `/app/api/reports/schedules/route.ts` - Scheduled reports CRUD
 - `/app/api/admin/users/route.ts` - User management
 
 ### Frontend Pages
@@ -115,12 +120,15 @@ CRON_SECRET
 - **Redirect URL**: https://v0-stax-reporting-tool.vercel.app/auth/callback
 
 ## Database Schema
-See `/schema.sql` for full schema. Key tables:
+See `/supabase/schema.sql` for full schema. Key tables:
 - `application_decisions` - Synced Salesforce data
 - `profiles` - User profiles with roles
 - `report_presets` - Saved report configurations
 - `generated_reports` - Report history
+- `scheduled_reports` - Scheduled report configurations
+- `scheduled_report_runs` - Scheduled report execution history
 - `sync_log` - Sync job history
+- `user_bdm_assignments` - BDM data access permissions
 
 ## User Roles
 - `global_admin` - Full access, can delete users
@@ -216,6 +224,70 @@ The admin UI and auth middleware use different tables:
 **Future Fix:** Unify on `profiles` table + `bdm_retailer_assignments` for multi-retailer support
 
 ## Recent Changes (2026-02-08)
+
+### Session 4: Presets Fix and Scheduled Reports Implementation
+
+**Problems Fixed:**
+1. **Presets "Run" button not working** - Clicking "Run" on a preset just navigated to Report Builder without applying the preset configuration
+2. **Scheduled Reports not implemented** - The page was just a "Coming Soon" placeholder
+
+**Presets Fix:**
+- Added `useSearchParams()` hook to Report Builder to read URL parameters
+- Wrapped component in `Suspense` boundary (required by Next.js 16 for static generation)
+- Added parameter mapping to convert preset values to Report Builder state:
+  - `reportType` → Report type toggle (AD/AP)
+  - `groupBy` → Grouping selections
+  - `metrics` → Metrics selections
+
+**Files Changed:**
+- `/app/report-builder/page.tsx` - Added URL param reading with Suspense boundary
+
+**Scheduled Reports Implementation:**
+
+**Database Schema (added to `/supabase/schema.sql`):**
+- `scheduled_reports` table:
+  - `id`, `user_id`, `name`, `config` (JSONB)
+  - `schedule_type` ('daily', 'weekly', 'monthly')
+  - `schedule_day` (0-6 for weekly, 1-31 for monthly)
+  - `schedule_time` (TIME)
+  - `recipients` (JSONB array of emails)
+  - `is_active`, `last_run_at`, `next_run_at`
+- `scheduled_report_runs` table:
+  - Tracks execution history, status, record counts, errors
+
+**New Files Created:**
+- `/lib/scheduled-report-service.ts` - CRUD operations for scheduled reports
+- `/app/api/reports/schedules/route.ts` - List and create schedules
+- `/app/api/reports/schedules/[id]/route.ts` - Get, update, delete individual schedules
+- `/app/api/cron/reports/route.ts` - Cron job that executes due reports
+
+**Scheduled Page UI (`/app/scheduled/page.tsx`):**
+- Lists all user's scheduled reports
+- Create dialog with:
+  - Schedule name
+  - Frequency (daily/weekly/monthly)
+  - Day selection (for weekly/monthly)
+  - Time picker
+  - Report type selection
+  - Email recipients
+- Toggle active/paused status
+- Delete schedule
+- Shows next run time and last run time
+
+**Cron Configuration (`/vercel.json`):**
+- Runs every 15 minutes: `"*/15 * * * *"`
+- Checks for due reports and executes them
+- Sends email with Excel attachment (requires RESEND_API_KEY)
+
+**Environment Variables Required:**
+- `RESEND_API_KEY` - For sending report emails (optional, skips email if not set)
+- `RESEND_FROM_EMAIL` - From address (defaults to reports@sherminfinance.co.uk)
+- `CRON_SECRET` - Protects cron endpoint from unauthorized calls
+
+**Migration Required:**
+Run the updated `/supabase/schema.sql` to create the new tables and functions.
+
+---
 
 ### Session 3: AD Name Column and AP/AD Report Differentiation
 

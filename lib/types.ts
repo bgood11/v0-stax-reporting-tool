@@ -73,14 +73,18 @@ export interface SyncLog {
 // Report configuration types
 export interface ReportConfig {
   reportType: 'AP' | 'AD'
-  filters: ReportFilters
+  filters?: ReportFilters
   groupBy: string[]
   metrics: string[]
   sortBy?: { field: string; direction: 'asc' | 'desc' }
+  name?: string
+  presetId?: string
 }
 
 export interface ReportFilters {
   dateRange?: { start: string; end: string }
+  dateFrom?: string
+  dateTo?: string
   lenders?: string[]
   statuses?: string[]
   retailers?: string[]
@@ -95,6 +99,7 @@ export interface ReportSummary {
   totalCommission: number
   approvalRate: number
   executionRate: number
+  averageLoanAmount?: number
 }
 
 // API response types
