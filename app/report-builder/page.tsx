@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { AppLayout } from "@/components/app-layout";
 import {
   ReportTypeToggle,
@@ -63,6 +63,7 @@ function getDateRange(preset: string): { dateFrom?: string; dateTo?: string } {
 }
 
 function ReportBuilderContent() {
+  const router = useRouter();
   const [reportType, setReportType] = React.useState<ReportType>("ad");
   const [filters, setFilters] = React.useState<FilterValues>({
     dateRange: "last30days",
@@ -187,8 +188,8 @@ function ReportBuilderContent() {
   };
 
   const handleSchedule = () => {
-    // TODO: Implement scheduling
-    alert("Report scheduling coming soon!");
+    // Navigate to the scheduled reports page
+    router.push('/scheduled');
   };
 
   const handleExport = async (format: "csv" | "xlsx" | "pdf") => {
@@ -256,15 +257,69 @@ function ReportBuilderContent() {
   // Read URL parameters from presets navigation
   const searchParams = useSearchParams();
 
+  // Map preset groupBy names to valid GroupingOption values
+  const groupingMap: Record<string, string> = {
+    'financeProduct': 'product',
+    'primeSubPrime': 'primeSubprime',
+    'lender': 'lender',
+    'retailer': 'retailer',
+    'bdm': 'bdm',
+    'status': 'status',
+    'month': 'month',
+    'week': 'week',
+    'product': 'product',
+    'primeSubprime': 'primeSubprime',
+  };
+
+  // Map preset metric names to UI metric IDs
+  const metricsMap: Record<string, string> = {
+    'applicationCount': 'totalApplications',
+    'totalCommission': 'commission',
+    'conversionRate': 'executionRate',
+    'settledCount': 'totalApplications',
+    'percentageOfTotal': 'totalApplications',
+    'loanValue': 'loanValue',
+    'approvalRate': 'approvalRate',
+    'commission': 'commission',
+    'executionRate': 'executionRate',
+    'totalApplications': 'totalApplications',
+  };
+
+  // Apply preset configuration from URL params
   React.useEffect(() => {
     const reportTypeParam = searchParams.get('reportType');
     const groupByParam = searchParams.get('groupBy');
     const metricsParam = searchParams.get('metrics');
+    const presetIdParam = searchParams.get('presetId');
 
+    // If presetId is provided, fetch the preset config from API
+    if (presetIdParam) {
+      fetch(`/api/reports/presets/${presetIdParam}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.preset?.config) {
+            const config = data.preset.config;
+            // Apply config from saved preset
+            if (config.reportType) {
+              const type = String(config.reportType).toLowerCase();
+              setReportType(type === 'ap' || type === 'approved_paid' ? 'ap' : 'ad');
+            }
+            if (config.groupBy && Array.isArray(config.groupBy)) {
+              const mapped = config.groupBy.map((g: string) => groupingMap[g] || g);
+              setGrouping(mapped as GroupingOption[]);
+            }
+            if (config.metrics && Array.isArray(config.metrics)) {
+              const mapped = config.metrics.map((m: string) => metricsMap[m] || m);
+              setMetrics([...new Set(mapped)]);
+            }
+          }
+        })
+        .catch(err => console.error('Failed to load preset:', err));
+      return;
+    }
+
+    // Handle direct params from built-in presets
     if (reportTypeParam) {
-      // Convert preset report type to our AD/AP toggle
-      // Presets may have specific types like "APPROVAL", "CONVERSION", etc.
-      // Default to 'ad' for application decisions
       const type = reportTypeParam.toLowerCase();
       if (type === 'ap' || type === 'approved_paid') {
         setReportType('ap');
@@ -274,45 +329,14 @@ function ReportBuilderContent() {
     }
 
     if (groupByParam) {
-      // GroupBy comes as comma-separated values like "lender,month"
       const groupByValues = groupByParam.split(',').filter(Boolean);
-      // Map preset groupBy names to valid GroupingOption values
-      const groupingMap: Record<string, string> = {
-        'financeProduct': 'product',
-        'primeSubPrime': 'primeSubprime',
-        // These stay the same:
-        'lender': 'lender',
-        'retailer': 'retailer',
-        'bdm': 'bdm',
-        'status': 'status',
-        'month': 'month',
-        'week': 'week',
-        'product': 'product',
-        'primeSubprime': 'primeSubprime',
-      };
       const mappedGrouping = groupByValues.map(g => groupingMap[g] || g);
       setGrouping(mappedGrouping as GroupingOption[]);
     }
 
     if (metricsParam) {
-      // Metrics come as comma-separated values
       const metricsValues = metricsParam.split(',').filter(Boolean);
-      // Map preset metric names to UI metric IDs
-      const metricsMap: Record<string, string> = {
-        'applicationCount': 'totalApplications',
-        'totalCommission': 'commission',
-        'conversionRate': 'executionRate',
-        'settledCount': 'totalApplications', // approximation
-        'percentageOfTotal': 'totalApplications', // approximation
-        // These stay the same:
-        'loanValue': 'loanValue',
-        'approvalRate': 'approvalRate',
-        'commission': 'commission',
-        'executionRate': 'executionRate',
-        'totalApplications': 'totalApplications',
-      };
       const mappedMetrics = metricsValues.map(m => metricsMap[m] || m);
-      // Remove duplicates
       const uniqueMetrics = [...new Set(mappedMetrics)];
       setMetrics(uniqueMetrics);
     }
